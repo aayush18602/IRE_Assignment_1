@@ -18,14 +18,11 @@ Q3's downstream ANN/eval code dataset-agnostic like everything else in this pipe
 Output: data/processed/<dataset>/embeddings.parquet with columns article_id, embedding (list[f32]).
 """
 import argparse
-import sys
 import time
 from pathlib import Path
 
 import numpy as np
 import polars as pl
-
-sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "src"))
 
 
 def _load_model(model_name: str, device: str):
