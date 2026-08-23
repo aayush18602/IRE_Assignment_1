@@ -20,3 +20,22 @@ Claude Code (Anthropic), used interactively in the terminal against this repo.
 - Human-written: none yet at this stage (setup only).
 - Human review: reviewed and approved the plan before implementation (see
   `/home/aayush/.claude/plans/fluttering-snacking-pumpkin.md` for the plan as approved).
+
+### 2026-08-23 — Part 0: dataset downloads, Kaggle/GPU decision
+
+- Prompt (paraphrased): user provided a HuggingFace access token to unblock the gated MIND
+  dataset download, confirmed Codabench registration was done, and asked Claude to re-verify
+  (by re-reading the PDF in depth) whether Kaggle/GPU is actually needed, since local downloads
+  seemed to conflict with an earlier "use Kaggle for large-scale work" recommendation.
+- AI-generated: downloaded and extracted EB-NeRD demo/small/large/testset and MIND small
+  train+dev + large-test locally; found and fixed a bug in `download_ebnerd.py` (a dead
+  `articles_large_only.zip` URL was silently aborting the run before the testset download);
+  added skip-if-exists + non-fatal-per-file-error handling to the script.
+- Human decision: given a genuine 3-way choice (load EB-NeRD's provided embeddings / compute
+  our own BERT-XLM-RoBERTa embeddings from article text / do both) for Q3, the user chose to
+  **compute our own embeddings**. This is the one part of the assignment that needs a GPU, so
+  Kaggle will be used specifically for that step; BM25 and large-test-set prediction generation
+  stay local/CPU (Polars/PyArrow batching, per the PDF's own guidance).
+- Security note: the HF token was pasted directly in chat. It was used only via an `HF_TOKEN`
+  env var for the download commands (never written into any repo file); the user was told to
+  treat it as exposed and optionally rotate it.

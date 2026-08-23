@@ -21,9 +21,11 @@ BASE = "https://ebnerd-dataset.s3.eu-west-1.amazonaws.com"
 BUNDLES = {
     "demo": [f"{BASE}/ebnerd_demo.zip"],
     "small": [f"{BASE}/ebnerd_small.zip"],
+    # NOTE: the PDF also lists artifacts/articles_large_only.zip here, but as of 2026-08-23
+    # that URL 404s (confirmed via HEAD request) -- dropped. ebnerd_large.zip already contains
+    # articles.parquet directly, so it isn't needed anyway.
     "large": [
         f"{BASE}/ebnerd_large.zip",
-        f"{BASE}/artifacts/articles_large_only.zip",
         f"{BASE}/ebnerd_testset.zip",
     ],
 }
@@ -35,7 +37,7 @@ EMBEDDINGS = [
 
 
 def download(url: str, dest: Path) -> None:
-    print(f"Downloading {url} -> {dest}")
+    print(f"Downloading {url} -> {dest}", flush=True)
     last_pct = -1
 
     def _hook(block_num, block_size, total_size):
@@ -46,7 +48,7 @@ def download(url: str, dest: Path) -> None:
         pct = min(100, done * 100 // total_size)
         if pct != last_pct and pct % 5 == 0:
             last_pct = pct
-            print(f"  {pct:3d}% ({done / 1e6:.1f} / {total_size / 1e6:.1f} MB)")
+            print(f"  {pct:3d}% ({done / 1e6:.1f} / {total_size / 1e6:.1f} MB)", flush=True)
 
     urllib.request.urlretrieve(url, dest, reporthook=_hook)
 
@@ -57,7 +59,7 @@ def _members(zf: zipfile.ZipFile):
 
 
 def extract_and_clean(zip_path: Path, out_dir: Path) -> None:
-    print(f"Extracting {zip_path.name} -> {out_dir}/")
+    print(f"Extracting {zip_path.name} -> {out_dir}/", flush=True)
     out_dir.mkdir(parents=True, exist_ok=True)
     with zipfile.ZipFile(zip_path) as zf:
         zf.extractall(out_dir, members=_members(zf))
@@ -78,26 +80,33 @@ def main() -> None:
     if args.tier == "large" and args.include_embeddings:
         urls += EMBEDDINGS
 
+    failed = []
     for url in urls:
         fname = url.rsplit("/", 1)[-1]
         zip_path = args.out_dir / fname
+        target_dir = args.out_dir / fname.removesuffix(".zip")
+        if target_dir.exists() and any(target_dir.iterdir()):
+            print(f"Skipping {fname}: {target_dir}/ already exists and is non-empty", flush=True)
+            continue
         try:
             download(url, zip_path)
         except Exception as exc:  # noqa: BLE001
-            print(f"ERROR downloading {url}: {exc}", file=sys.stderr)
-            sys.exit(1)
+            print(f"ERROR downloading {url}: {exc}", file=sys.stderr, flush=True)
+            failed.append(url)
+            continue
 
-        target_name = fname.removesuffix(".zip")
-        target_dir = args.out_dir / target_name
         if args.keep_zip:
-            print(f"Extracting {zip_path.name} -> {target_dir}/ (keeping zip)")
+            print(f"Extracting {zip_path.name} -> {target_dir}/ (keeping zip)", flush=True)
             target_dir.mkdir(parents=True, exist_ok=True)
             with zipfile.ZipFile(zip_path) as zf:
                 zf.extractall(target_dir, members=_members(zf))
         else:
             extract_and_clean(zip_path, target_dir)
 
-    print(f"Done. EB-NeRD '{args.tier}' tier ready under {args.out_dir}/")
+    if failed:
+        print(f"\nDone with errors -- {len(failed)} file(s) failed: {failed}", file=sys.stderr, flush=True)
+        sys.exit(1)
+    print(f"Done. EB-NeRD '{args.tier}' tier ready under {args.out_dir}/", flush=True)
 
 
 if __name__ == "__main__":
