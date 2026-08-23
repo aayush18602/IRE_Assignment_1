@@ -4,7 +4,7 @@ from pathlib import Path
 import pytest
 
 from ire_a1.clean import clean_ebnerd, clean_mind
-from ire_a1.feature_store import history_asof
+from ire_a1.feature_store import history_asof, recent_history_asof
 from ire_a1.schema import ARTICLE_COLS, HISTORY_COLS, IMPRESSION_COLS
 
 EBNERD_DEMO = Path("data/ebnerd_demo")
@@ -66,3 +66,11 @@ def test_history_asof_filters_future_entries():
 def test_history_asof_passthrough_when_no_timestamps():
     ids = ["a", "b", "c"]
     assert history_asof(ids, None, datetime(2024, 1, 1)) == ids
+
+
+def test_recent_history_asof_takes_last_n_after_cutoff_filtering():
+    ids = ["a", "b", "c", "d", "e"]
+    times = [datetime(2024, 1, i) for i in (1, 2, 3, 4, 5)]
+    cutoff = datetime(2024, 1, 5)  # excludes "e"
+    assert recent_history_asof(ids, times, cutoff, n_recent=2) == ["c", "d"]
+    assert recent_history_asof(ids, times, cutoff, n_recent=10) == ["a", "b", "c", "d"]

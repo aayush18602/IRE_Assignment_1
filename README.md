@@ -74,11 +74,31 @@ Options: `--ebnerd-raw-dir`, `--mind-train-dir` / `--mind-dev-dir`, `--out-dir`,
 `--val-frac`, `--skip-ebnerd`, `--skip-mind` (see `--help`). Defaults come from
 `configs/pipeline.yaml`.
 
-Run the tests (unit tests on synthetic data + integration checks against the downloaded
-demo/small data, including a leakage assertion baked into `temporal_split` itself):
+## Reproduce (Q2: BM25 lexical retrieval)
+
+```bash
+python scripts/run_bm25.py --dataset ebnerd
+python scripts/run_bm25.py --dataset mind
+```
+
+Builds an inverted index (`src/ire_a1/bm25.py`: hand-rolled Okapi BM25 over article title +
+abstract, not a library wrapper) and, for every impression in the chosen split (default
+`test`), constructs a query from the user's `--n-recent` (default 10) most recently clicked
+article titles **as of that impression's timestamp** (`feature_store.recent_history_asof`, so
+no future click ever leaks into the query), retrieves the top-K candidates, and reports
+recall@K for K in `--k-values` (default `50,100,200`). Writes `bm25/recall_<split>.json` and
+`bm25/candidates_<split>.parquet` (the actual top-K retrieved ids + scores, for reuse in Q3/Q4)
+under `data/processed/<dataset>/`. Use `--limit N` for a quick smoke test before a full run.
+
+## Tests
+
+Unit tests on synthetic data (BM25 ranking sanity, recall@K edge cases, split
+ordering/fractions) + integration checks against the downloaded demo/small data (schema shape,
+clicked-subset-of-candidates, no leakage), including the leakage assertion baked into
+`temporal_split` itself:
 
 ```bash
 python -m pytest tests/ -v
 ```
 
-*(Q2-Q6 land in later commits; this README is updated as each part is implemented)*
+*(Q3-Q6 land in later commits; this README is updated as each part is implemented)*

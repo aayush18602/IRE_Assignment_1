@@ -34,3 +34,12 @@ def history_asof(
     if timestamps is None:
         return article_ids
     return [aid for aid, ts in zip(article_ids, timestamps) if ts is not None and ts < cutoff]
+
+
+def recent_history_asof(
+    article_ids: list[str], timestamps: list[datetime] | None, cutoff: datetime, n_recent: int = 10
+) -> list[str]:
+    """The last `n_recent` article ids from history_asof(), i.e. the user's most recent clicks
+    strictly before `cutoff`. History lists are stored oldest-first (verified in clean.py for
+    EB-NeRD; MIND ships its history pre-ordered the same way), so "most recent" = the tail."""
+    return history_asof(article_ids, timestamps, cutoff)[-n_recent:]
