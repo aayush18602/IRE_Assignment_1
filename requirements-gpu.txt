@@ -1,0 +1,7 @@
+# Heavy deps, only needed on a GPU environment (Kaggle/Colab) for computing
+# BERT/XLM-RoBERTa article embeddings at large-bundle scale.
+# Install on top of requirements.txt: pip install -r requirements.txt -r requirements-gpu.txt
+torch>=2.2
+transformers>=4.40
+sentence-transformers>=3.0
+faiss-gpu>=1.7; sys_platform == "linux"

@@ -1,0 +1,27 @@
+# Assignment policy (Q8): no large files in git
+*.zip
+*.pt
+*.ckpt
+data/
+__pycache__/
+
+# Python
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+.mypy_cache/
+.pytest_cache/
+.ruff_cache/
+
+# Jupyter
+.ipynb_checkpoints/
+
+# OS / editor
+.DS_Store
+.vscode/
+.idea/
+
+# Local secrets / API keys (kaggle.json, hf token, etc.)
+.kaggle/
+.env
