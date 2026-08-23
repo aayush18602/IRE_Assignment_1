@@ -90,6 +90,35 @@ recall@K for K in `--k-values` (default `50,100,200`). Writes `bm25/recall_<spli
 `bm25/candidates_<split>.parquet` (the actual top-K retrieved ids + scores, for reuse in Q3/Q4)
 under `data/processed/<dataset>/`. Use `--limit N` for a quick smoke test before a full run.
 
+## Reproduce (Q3: semantic/embedding retrieval)
+
+Split across two environments, since embedding computation is the one GPU-bound step in this
+assignment (see the compute-strategy discussion above / `ai_usage_log.md`):
+
+```bash
+# 1. On Kaggle (GPU): pip install -r requirements.txt -r requirements-gpu.txt, then
+python scripts/compute_embeddings.py --dataset ebnerd   # xlm-roberta-base by default, both datasets
+python scripts/compute_embeddings.py --dataset mind
+# -> copy the resulting data/processed/<dataset>/embeddings.parquet back to this machine
+
+# 2. Locally (CPU): ANN index + recall@K, same metric/format as Q2 so they're comparable
+python scripts/run_embeddings.py --dataset ebnerd
+python scripts/run_embeddings.py --dataset mind
+
+# 3. Locally: side-by-side comparison table (Q3.5)
+python scripts/compare_retrieval.py --dataset ebnerd
+```
+
+`compute_embeddings.py` mean-pools XLM-RoBERTa token embeddings over title+abstract (one
+multilingual model for both datasets, not two dataset-specific ones -- it natively handles
+EB-NeRD's Danish and MIND's English, keeping the downstream ANN/eval code dataset-agnostic like
+the rest of the pipeline). `run_embeddings.py` builds a FAISS flat (exact) index
+(`src/ire_a1/ann.py`) and represents each user as the mean-pooled embedding of their recent
+click history -- same leak-safe `recent_history_asof` cutoff as Q2, and the same
+`candidate_eval.recall_at_k` metric, so BM25 and embedding results are directly comparable.
+Verified locally end-to-end (including `compute_embeddings.py` itself) on a small CPU smoke run
+before handing the real run off to Kaggle.
+
 ## Tests
 
 Unit tests on synthetic data (BM25 ranking sanity, recall@K edge cases, split
