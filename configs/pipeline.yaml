@@ -1,0 +1,13 @@
+# Q1 pipeline defaults. Override any of these from the CLI, e.g.:
+#   python scripts/build_pipeline.py --ebnerd-tier large --mind-tier large
+ebnerd:
+  tier: small
+  raw_dir: data/ebnerd_small
+mind:
+  tier: small
+  train_dir: data/MINDsmall_train/MINDsmall_train
+  dev_dir: data/MINDsmall_dev/MINDsmall_dev
+split:
+  test_frac: 0.15
+  val_frac: 0.15
+output_dir: data/processed

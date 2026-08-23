@@ -34,20 +34,23 @@ source .venv/bin/activate
 ## Data
 
 Small/demo tiers are for local development; the **large** tiers are required for Codabench
-submission (multi-GB) and are meant to be downloaded/run on Kaggle, not on this machine — see
-`ai_usage_log.md` / assignment PDF for the compute rationale.
+submission. Both fit comfortably on a normal disk (~7GB total, checked against real
+`Content-Length` headers, not the "several GB each" guess in the PDF) and download fine locally
+-- no Kaggle needed just to fetch/store them. Kaggle is only used for the one GPU-bound step in
+this assignment (Q3: computing our own BERT/XLM-RoBERTa article embeddings); everything else,
+including large-test-set prediction generation, runs locally via Polars/PyArrow batching.
 
 ```bash
 # EB-NeRD (S3, no auth needed)
 python scripts/download_ebnerd.py --tier demo
 python scripts/download_ebnerd.py --tier small
-python scripts/download_ebnerd.py --tier large   # Kaggle: multi-GB, needs disk
+python scripts/download_ebnerd.py --tier large   # ~5GB zipped, ~7GB extracted
 
 # MIND (HuggingFace, dataset is *gated* -- one-time: accept terms on the dataset page at
 # https://huggingface.co/datasets/yjw1029/MIND, create a token at
 # https://huggingface.co/settings/tokens, then `huggingface-cli login` or export HF_TOKEN)
 python scripts/download_mind.py --tier small
-python scripts/download_mind.py --tier large-test   # Kaggle: required for Codabench
+python scripts/download_mind.py --tier large-test   # required for Codabench, ~1.5GB
 ```
 
 ## Competition registration (manual, one-time)
@@ -55,10 +58,27 @@ python scripts/download_mind.py --tier large-test   # Kaggle: required for Codab
 - MIND: https://www.codabench.org/competitions/13967/
 - RecSys 2024 Challenge (EB-NeRD): https://www.codabench.org/competitions/2469/
 
-## Reproduce
+## Reproduce (Q1: data pipeline)
 
 ```bash
-python scripts/build_pipeline.py   # one command: raw data -> cleaned -> split -> feature store
+python scripts/build_pipeline.py   # defaults: EB-NeRD small + MIND small, configs/pipeline.yaml
 ```
 
-*(pipeline script lands with Q1; this README is updated as each part is implemented)*
+Cleans both datasets into a unified schema (`src/ire_a1/schema.py`: articles / impressions /
+history with identical columns, ids cast to string), does a **temporal** train/val/test split
+per dataset (quantile-based cutoffs on impression timestamps, never random -- see
+`src/ire_a1/split.py`), and writes the feature store to `data/processed/<dataset>/`:
+`articles.parquet`, `user_history.parquet`, `impressions_{train,val,test}.parquet`.
+
+Options: `--ebnerd-raw-dir`, `--mind-train-dir` / `--mind-dev-dir`, `--out-dir`, `--test-frac`,
+`--val-frac`, `--skip-ebnerd`, `--skip-mind` (see `--help`). Defaults come from
+`configs/pipeline.yaml`.
+
+Run the tests (unit tests on synthetic data + integration checks against the downloaded
+demo/small data, including a leakage assertion baked into `temporal_split` itself):
+
+```bash
+python -m pytest tests/ -v
+```
+
+*(Q2-Q6 land in later commits; this README is updated as each part is implemented)*
