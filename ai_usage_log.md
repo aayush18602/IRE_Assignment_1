@@ -203,3 +203,17 @@ Claude Code (Anthropic), used interactively in the terminal against this repo.
   launched in the background (BM25 expected to take as long as Q2's runs did, since
   `score_candidates` shares the same `_score_all` cost as `query()`).
 - Human review: not yet reviewed by the user at time of writing (full-run numbers pending).
+- Update once all 4 background runs (BM25/embeddings x EB-NeRD/MIND) completed: results copied
+  to `results/{ebnerd,mind}/eval/` and written up in `results/eval_comparison.md`. Headline
+  finding: the winner reverses from Q2/Q3's candidate-generation recall@K. There, BM25 won on
+  EB-NeRD and only lost to fine-tuned embeddings on MIND. On Q4's official ranking task
+  (re-ranking each impression's own small, already-curated candidate set), embeddings win the
+  accuracy metrics on EB-NeRD outright and are roughly tied with BM25 on MIND -- documented as
+  the difference between "find a needle in a large haystack" (favors exact term matching) vs.
+  "distinguish among already-similar candidates" (favors continuous semantic similarity).
+  Coverage tells the opposite story (BM25 covers 58-96% more of the catalog on both datasets),
+  a genuine beyond-accuracy trade-off the accuracy metrics alone don't surface. One drafting
+  error caught before finalizing: an initial claim that "AUC drops for cold users in every
+  method" was checked against the actual numbers and found false for EB-NeRD BM25 (cold AUC
+  0.499 vs. warm 0.497, statistically indistinguishable) -- corrected in results/
+  eval_comparison.md rather than left as an overclaim.

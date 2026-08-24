@@ -168,6 +168,25 @@ Two kinds of metric, computed differently on purpose:
   point estimate (`mean`) and the bootstrap distribution's own mean (`boot_mean`) are reported
   so this is visible rather than looking like a bug.
 
+### Results (Q4, full test splits)
+
+See `results/eval_comparison.md` for the full tables + slice breakdown + discussion. Headline:
+**the winner reverses from Q2/Q3.** There, BM25 won candidate-generation recall@K on EB-NeRD
+and only lost to fine-tuned embeddings on MIND. Here, on the *official ranking task*
+(re-ranking each impression's own small, already-curated candidate set, not searching the full
+catalog), embeddings win the accuracy metrics on EB-NeRD outright and are roughly tied with
+BM25 on MIND. Candidate generation ("find the needle in a 20K-65K article haystack") rewards
+exact term matching; re-ranking a handful of already-similar candidates rewards the subtler
+distinctions continuous semantic similarity can pick up on that binary term overlap can't -- a
+natural argument for a two-stage system using both. Coverage tells the opposite story: BM25
+covers 58-96% more of the catalog than embeddings on both datasets, a real beyond-accuracy
+trade-off the accuracy metrics alone don't surface.
+
+| Dataset | AUC BM25 | AUC Embeddings | MRR BM25 | MRR Embeddings |
+|---|---|---|---|---|
+| EB-NeRD | 0.497 | **0.526** | 0.319 | **0.334** |
+| MIND | 0.545 | **0.557** | **0.282** | 0.276 |
+
 ## Tests
 
 Unit tests on synthetic data (BM25 ranking sanity, recall@K edge cases, split
