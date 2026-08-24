@@ -175,10 +175,16 @@ def main() -> None:
 
     out_path = run_ebnerd(args) if args.dataset == "ebnerd" else run_mind(args)
 
+    # The name *inside* the zip is dictated by each competition's own submission guidelines, not
+    # by our local working filename -- both confirmed directly against the two competitions'
+    # actual Codabench "Submission Guidelines" pages (not assumed from the reference notebooks,
+    # which got MIND's wrong -- see ai_usage_log.md): EB-NeRD requires exactly "predictions.txt",
+    # MIND requires exactly "prediction.txt" (no shared convention between them).
+    required_arcname = {"ebnerd": "predictions.txt", "mind": "prediction.txt"}[args.dataset]
     zip_path = out_path.with_suffix(".zip")
     with zipfile.ZipFile(zip_path, "w", zipfile.ZIP_DEFLATED) as zf:
-        zf.write(out_path, arcname=out_path.name)
-    print(f"Zipped to {zip_path} -- upload this file to Codabench.")
+        zf.write(out_path, arcname=required_arcname)
+    print(f"Zipped to {zip_path} (containing {required_arcname}) -- upload this file to Codabench.")
 
 
 if __name__ == "__main__":

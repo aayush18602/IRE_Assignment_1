@@ -263,3 +263,36 @@ Claude Code (Anthropic), used interactively in the terminal against this repo.
   impression_id in the sample is covered (0 malformed lines either dataset) -- before launching
   the full 13.5M/2.37M-row runs.
 - Human review: not yet reviewed by the user at time of writing (full runs in progress).
+
+### 2026-08-24 — Q5: filename bug caught by the user, full runs validated and complete
+
+- Prompt: user pasted MIND's actual official Codabench submission guidelines and asked "check
+  if zip we made is fine with this?" -- a real, load-bearing question: the guidelines required
+  the file *inside the zip* to be named exactly `prediction.txt`, but the code (following the
+  reference notebook's convention without independently checking it against the real
+  competition rules) used `mind_prediction.txt`, which would have been rejected on upload.
+- AI-generated: fixed `scripts/generate_submission.py` so the zip's internal arcname is
+  dataset-specific and confirmed rather than derived from the local working filename. Attempted
+  to independently verify EB-NeRD's equivalent requirement via WebFetch (the Codabench
+  competition page and the ebnerd-benchmark GitHub repo) before assuming the reference
+  notebook's `predictions.txt` convention was correct there too -- both attempts hit JS-rendered
+  content WebFetch couldn't read, so explicitly told the user "I can't reliably access this,
+  please paste it" rather than guessing. User then pasted EB-NeRD's actual guidelines too,
+  confirming `predictions.txt` was in fact already correct there (happened to match the
+  reference notebook's convention, unlike MIND).
+- Since the two full-scale background runs (started before the fix) were using stale in-process
+  code, manually recreated the MIND zip afterward with the corrected arcname rather than
+  re-running the 14-minute generation; verified via `unzip -l` that the fixed zip contains
+  exactly one file named `prediction.txt`, no `__MACOSX`, no folder nesting.
+- Final verification once both full runs completed: exact line-count match against known
+  impression counts (13,536,710 EB-NeRD, 2,370,727 MIND); a 2,000-row *random* sample spanning
+  the entire output file for each dataset (not just head/tail) checked against the real source
+  data -- confirmed every sampled line is a valid permutation of the correct length, 0 malformed
+  lines either dataset; row order preserved (both competitions' guidelines require this
+  explicitly); MIND's last line (impression_id 2,370,727) matches the total row count, ruling
+  out silent truncation.
+- Human review: user caught the filename bug via the pasted MIND guidelines -- a real error
+  that would not have been caught by any of the automated validation already in place (which
+  checked format correctness, not competition-specific naming rules). Both submission files
+  are now generated, fixed, and validated. Remaining manual steps for the user: register/upload
+  both zips to the two Codabench competitions, screenshot the leaderboard results for Q6.
