@@ -187,6 +187,41 @@ trade-off the accuracy metrics alone don't surface.
 | EB-NeRD | 0.497 | **0.526** | 0.319 | **0.334** |
 | MIND | 0.545 | **0.557** | **0.282** | 0.276 |
 
+## Reproduce (Q5: Codabench submission, large test sets)
+
+```bash
+python scripts/generate_submission.py --dataset ebnerd   # ~18 min, 13.5M impressions
+python scripts/generate_submission.py --dataset mind     # ~15 min, 2.37M impressions
+```
+
+The large test sets have no labels and are ~190x (EB-NeRD) / ~69x (MIND) bigger than the small
+test splits Q2-Q4 ran on -- naively reusing the per-impression BM25 scoring from those would
+take **~47 hours (EB-NeRD) / ~50 hours (MIND)**, worked out by extrapolating the measured
+per-impression cost. Made tractable by two changes, both in `src/ire_a1/`:
+
+1. **`BM25Index.score_candidates` was rewritten to be candidate-first, term-second** (loop over
+   the ~15-30 given candidates, and only their query-term overlaps) instead of scanning every
+   document that shares a term with the query and then discarding all but the requested
+   candidates. A query built from 10 article titles routinely contains common words with
+   postings lists in the thousands; the old approach touched all of them, the new one touches
+   zero documents outside the actual candidate set. Benchmarked ~1000x faster on real data.
+2. **Each user's query is computed once and cached**, not rebuilt per impression. Verified this
+   is safe, not just fast: EB-NeRD's test history is confirmed entirely pre-test-period (max
+   history timestamp `2023-06-01 06:59:59`, min test impression timestamp
+   `2023-06-01 07:00:00`) -- so the leak-safe as-of cutoff never actually excludes anything
+   within the test period, meaning a user's query is identical across all their impressions
+   (16.76 impressions/user on average for EB-NeRD, 3.38 for MIND).
+
+Combined, the full scoring pass benchmarks at ~15 min/dataset. EB-NeRD's 13.5M-row behaviors
+file is streamed in row-group batches (PyArrow) to keep memory bounded; MIND's 2.37M rows fit
+comfortably in memory as one frame.
+
+Output: `data/submissions/predictions.zip` (EB-NeRD) and `data/submissions/mind_prediction.zip`
+(MIND), in the official `impression_id [rank_order]` format -- upload these to the two
+Codabench competitions from the PDF. Verified against real data before the full run: every
+output line is a valid permutation of 1..N matching each impression's actual candidate count,
+and every impression_id in a 5,000-row smoke test was covered.
+
 ## Tests
 
 Unit tests on synthetic data (BM25 ranking sanity, recall@K edge cases, split

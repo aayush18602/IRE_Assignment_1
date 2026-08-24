@@ -217,3 +217,49 @@ Claude Code (Anthropic), used interactively in the terminal against this repo.
   method" was checked against the actual numbers and found false for EB-NeRD BM25 (cold AUC
   0.499 vs. warm 0.497, statistically indistinguishable) -- corrected in results/
   eval_comparison.md rather than left as an overclaim.
+
+### 2026-08-24 — Q5: Codabench submission at scale
+
+- Prompt: "what to do for Q5?" -> Claude flagged that naively reusing Q2-Q4's per-impression
+  BM25 scoring on the large test sets (13.5M EB-NeRD / 2.37M MIND impressions, ~190x/~69x
+  bigger than the small splits) would take an estimated ~47-50 hours, infeasible with the
+  deadline. Presented two options via AskUserQuestion (fast scalable baseline vs. engineering
+  BM25 to run at scale); user chose to engineer BM25 for scale.
+- Investigation before writing any code: inspected the real large-tier schemas
+  (`ebnerd_testset`, `MINDlarge_test`) directly rather than assuming they matched the small-tier
+  schemas clean.py already handles (they don't -- different directory structure, no labels,
+  different/larger article catalogs: 125,541 EB-NeRD articles vs. 20,738 in the small tier,
+  120,961 MIND articles vs. 65,238). Checked impressions-per-user ratio empirically (EB-NeRD
+  16.76x, MIND 3.38x) and, critically, verified EB-NeRD's test history is entirely
+  pre-test-period (max history timestamp 2023-06-01 06:59:59, min test impression timestamp
+  2023-06-01 07:00:00, an exact 1-second boundary) before relying on that fact to cache each
+  user's query -- caching without that verification would have risked silently reusing a stale,
+  leaky, or simply wrong query.
+- AI-generated: refactored `BM25Index` (`src/ire_a1/bm25.py`) so `score_candidates()` is
+  candidate-first/term-second (touches only the given ~15-30 candidates and their query-term
+  overlaps) instead of reusing `_score_all`'s full-corpus scan; `postings` restructured from
+  `term -> [(doc_idx, tf), ...]` to `term -> {doc_idx: tf}` for O(1) point lookups, with
+  `query()`/`_score_all` (Q2/Q3, unaffected) updated to iterate `.items()` instead of a list --
+  same data, no duplicated storage. New `src/ire_a1/submission.py` (`ranks_from_scores`,
+  `format_submission_line`) extracted out of the script so the ranking/formatting logic is unit
+  tested (4 new tests) rather than only validated by eyeballing script output.
+  `scripts/generate_submission.py`: dataset-specific loaders for the large/unlabeled bundles
+  (self-contained, don't reuse `clean_ebnerd`/`clean_mind` which assume the labeled train/
+  validation structure), per-user query caching, EB-NeRD behaviors streamed in PyArrow
+  row-group batches to bound memory (13.5M rows), MIND loaded as one frame (2.37M rows, modest).
+- Verification performed, in order: (1) full pytest suite (42/42) after the bm25.py refactor,
+  confirming the rewrite didn't change scoring semantics; (2) isolated micro-benchmark on the
+  small-tier index showed a ~1157x speedup, but was flagged as unrealistic and re-benchmarked
+  against the real large-tier index (125,541 articles) with real user-history-derived queries
+  before trusting any number -- realistic estimate ~0.065ms/impression EB-NeRD,
+  ~0.37ms/impression MIND, extrapolating to ~15 min/dataset for the full scoring pass, not the
+  isolated benchmark's misleadingly large multiplier; (3) exact output format re-verified
+  against the reference notebooks' markdown cells (not assumed from memory) before running
+  anything at scale -- confirmed `impression_id [rank_order]`, comma-separated 1-indexed
+  permutation in original candidate order, and matched the reference notebooks' exact output
+  filenames (`predictions.txt`/`.zip`, `mind_prediction.txt`/`.zip`); (4) 5,000-row smoke test
+  for both datasets, then programmatically validated every output line against the real source
+  data -- confirmed every line is a valid permutation of the correct length and every
+  impression_id in the sample is covered (0 malformed lines either dataset) -- before launching
+  the full 13.5M/2.37M-row runs.
+- Human review: not yet reviewed by the user at time of writing (full runs in progress).
