@@ -132,3 +132,38 @@ Claude Code (Anthropic), used interactively in the terminal against this repo.
   as the expected behavior of un-fine-tuned mean-pooled transformer embeddings vs. lexical
   retrieval (the reason Sentence-BERT-style fine-tuning exists).
 - Human review: results reported to the user; no objections raised yet.
+
+### 2026-08-24 — Q3 ablation: fine-tuned sentence-embedding model vs. raw XLM-R
+
+- Prompt: user asked "shouldn't semantic models be better than lexical?" after seeing BM25 win.
+  Claude explained that raw pretrained transformer mean-pooling is a documented weak retrieval
+  baseline and offered a fine-tuned sentence-embedding model as a fairer comparison. User then
+  asked specifically about `all-MiniLM-v8` (likely meaning `all-MiniLM-L6-v2`, English-only --
+  flagged as unsuitable for Danish EB-NeRD), then about `paraphrase-multilingual-mpnet-base-v2`
+  and `intfloat/multilingual-e5-base`. User asked Claude to re-check the PDF for whether
+  non-BERT/XLM-RoBERTa-named models are "allowed" -- Claude quoted the exact PDF wording (only
+  "BERT, XLM-RoBERTa" named, no explicit allow/deny list) and gave an honest ambiguous-but-likely-fine
+  read, recommending framing any such model as an *additional* ablation alongside the compliant
+  XLM-RoBERTa result rather than a replacement. User then said "yes lets implement", after
+  Claude had recommended mpnet over e5 as the lower-risk pick (drop-in, no architecture change,
+  vs. e5's query/passage-prefix convention which our mean-pooled-history-embedding design
+  doesn't follow).
+- AI-generated: no changes needed to `compute_embeddings.py` (model already a CLI parameter);
+  added `--embeddings-file` to `run_embeddings.py` (evaluate a second embeddings.parquet without
+  overwriting the first) and `--variant LABEL=DIR` (repeatable) to `compare_retrieval.py`
+  (N-way comparison table, not just BM25-vs-one-embedding), verified backward-compatible against
+  the existing xlm-roberta-base results before committing. Gave the user updated Kaggle
+  instructions for `--model sentence-transformers/paraphrase-multilingual-mpnet-base-v2`.
+- User ran it on Kaggle and returned `embeddings_mpnet.parquet` for both datasets. AI-generated:
+  validated the returned embeddings (same checks as the first Kaggle round: row counts, no
+  NaN/zero vectors, full id overlap, 768-dim) before use; ran `run_embeddings.py` and the new
+  multi-variant `compare_retrieval.py` for both datasets; rewrote `results/comparison.md` with
+  the three-way table + analysis, copied the two new `recall_test.json` files into `results/`.
+- Finding (genuinely interesting, not anticipated): fine-tuning roughly doubles recall@200 on
+  both datasets vs. raw XLM-R, confirming the earlier hypothesis. But the BM25-vs-embeddings
+  *winner flips by language* -- BM25 still wins on EB-NeRD (Danish) by ~1.2x over the
+  fine-tuned model, while the fine-tuned model *beats* BM25 on MIND (English) by ~1.6x. Likely
+  cause documented in results/comparison.md: `paraphrase-multilingual-mpnet-base-v2` was
+  distilled from an English-only teacher, so its English quality likely exceeds its Danish
+  quality (multilingual extension via distillation, not native multilingual training).
+- Human review: results reported to the user.

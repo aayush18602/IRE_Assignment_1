@@ -121,15 +121,18 @@ before handing the real run off to Kaggle.
 
 ## Results so far (Q2 vs Q3, full test splits)
 
-See `results/comparison.md` for the full table + discussion. Headline: BM25 beats the raw
-(not fine-tuned) XLM-RoBERTa embedding baseline on every K, on both datasets -- expected, since
-mean-pooled vanilla transformer embeddings are a known-weak retrieval baseline vs. lexical
-methods (it's why Sentence-BERT-style fine-tuning exists).
+See `results/comparison.md` for the full table + discussion. Two embedding variants were run:
+raw `xlm-roberta-base` (no similarity fine-tuning) and `sentence-transformers/paraphrase-
+multilingual-mpnet-base-v2` (same architecture, fine-tuned for semantic similarity). Headline:
+fine-tuning roughly doubles recall@200 either way, and the lexical-vs-semantic winner flips by
+*language* -- BM25 wins on EB-NeRD (Danish), the fine-tuned model wins on MIND (English),
+likely because that model's fine-tuning data was English-centric before multilingual
+distillation.
 
-| Dataset | recall@200 BM25 | recall@200 Embeddings |
-|---|---|---|
-| EB-NeRD | 2.01% | 0.95% |
-| MIND | 1.43% | 0.37% |
+| Dataset | recall@200 BM25 | recall@200 XLM-R (raw) | recall@200 mpnet (fine-tuned) |
+|---|---|---|---|
+| EB-NeRD | **2.01%** | 0.95% | 1.69% |
+| MIND | 1.43% | 0.37% | **2.27%** |
 
 ## Tests
 

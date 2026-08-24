@@ -1,0 +1,12 @@
+{
+  "dataset": "ebnerd",
+  "split": "test",
+  "n_impressions": 71631,
+  "n_recent": 10,
+  "n_cold_start": 0,
+  "embedding_dim": 768,
+  "embeddings_file": "embeddings_mpnet.parquet",
+  "recall@50": 0.004769040095923708,
+  "recall@100": 0.009697074047704361,
+  "recall@200": 0.016935560178011073
+}
