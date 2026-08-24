@@ -35,6 +35,10 @@ def main() -> None:
                          help="how many of the user's most recent (as-of impression time) clicked articles go into the user embedding")
     parser.add_argument("--limit", type=int, default=None, help="only score the first N impressions (smoke test)")
     parser.add_argument("--out-dir", default=None, type=Path)
+    parser.add_argument("--embeddings-file", default="embeddings.parquet",
+                         help="filename under data/processed/<dataset>/ to load -- use this to "
+                              "evaluate a second embedding variant (e.g. embeddings_mpnet.parquet) "
+                              "without overwriting the first one's results")
     args = parser.parse_args()
 
     k_values = sorted(int(k) for k in args.k_values.split(","))
@@ -43,7 +47,7 @@ def main() -> None:
     out_dir = args.out_dir or ds_dir / "embeddings_eval"
     out_dir.mkdir(parents=True, exist_ok=True)
 
-    emb_path = ds_dir / "embeddings.parquet"
+    emb_path = ds_dir / args.embeddings_file
     if not emb_path.exists():
         print(
             f"ERROR: {emb_path} not found. Run scripts/compute_embeddings.py --dataset "
@@ -110,6 +114,7 @@ def main() -> None:
     summary = {
         "dataset": args.dataset, "split": args.split, "n_impressions": n,
         "n_recent": args.n_recent, "n_cold_start": n_cold_start, "embedding_dim": dim,
+        "embeddings_file": args.embeddings_file,
     }
     for k in k_values:
         vals = recalls[k]
