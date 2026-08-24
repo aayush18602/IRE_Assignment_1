@@ -78,7 +78,8 @@ Claude Code (Anthropic), used interactively in the terminal against this repo.
   full run (recall@50/100/200 = 0.6%/1.4%/2.4% -- low but expected for pure lexical
   title-matching against a ~20K-article catalog); ran the full pytest suite (16/16 passed); full
   test-split runs for both datasets launched in the background.
-- Human review: not yet reviewed by the user at time of writing (full-run numbers pending).
+- Human review: user asked for status later; final numbers reported (EB-NeRD recall@50/100/200
+  = 0.49%/1.03%/2.01%, MIND = 0.45%/0.82%/1.43%), no objections raised.
 
 ### 2026-08-23 — Q3: semantic candidate generation (embeddings)
 
@@ -105,3 +106,29 @@ Claude Code (Anthropic), used interactively in the terminal against this repo.
   pytest suite (22/22 passed). Deleted the smoke-test scratch files afterward.
 - Human review: not yet reviewed by the user at time of writing; Kaggle run itself still pending
   (user needs to actually execute `compute_embeddings.py` there and hand back the embeddings).
+
+### 2026-08-24 — Q3: Kaggle run completed, results in
+
+- Prompt: user ran `compute_embeddings.py` on Kaggle. First attempt hit `FileNotFoundError` --
+  the `--processed-dir` guess in the instructions Claude gave didn't match Kaggle's actual mount
+  path (`/kaggle/input/datasets/<username>/<dataset-slug>/...`, deeper than assumed). Fixed by
+  asking the user to run `!find /kaggle/input -name "articles.parquet"` and using the real path.
+  Also found and fixed a real dead-code bug while writing those instructions: `compute_
+  embeddings.py` had an unused `sys.path.insert(...)` for `src/` that it never actually needed
+  (the script is fully self-contained) -- removed, confirmed via `grep` there was no `ire_a1`
+  import anywhere in the file, re-verified `--help` still works.
+- User then ran both datasets on Kaggle and copied `embeddings.parquet` back for each.
+- AI-generated: validated the returned embeddings before trusting them (row counts match
+  articles, no NaNs, no all-zero rows, full article_id overlap, correct 768-dim) before running
+  anything downstream; ran `scripts/run_embeddings.py` (smoke-tested on 500 rows first, then
+  full test splits: EB-NeRD 71,631 impressions in ~200s, MIND 34,519 impressions -- noticeably
+  slower per-impression than EB-NeRD despite fewer rows, due to MIND's larger 65K-article
+  corpus) and `scripts/compare_retrieval.py` for both datasets; wrote `results/comparison.md` +
+  copied the four `recall_test.json` result files into `results/<dataset>/` since
+  `data/processed/` (where the scripts write by default) is entirely gitignored and the actual
+  recall numbers are a real deliverable worth having in git, not just reproducible-in-theory.
+- Finding: BM25 beats the raw (not fine-tuned) xlm-roberta-base embedding baseline on every K,
+  both datasets (EB-NeRD ~2x, MIND ~4-5x). Not a bug -- documented in `results/comparison.md`
+  as the expected behavior of un-fine-tuned mean-pooled transformer embeddings vs. lexical
+  retrieval (the reason Sentence-BERT-style fine-tuning exists).
+- Human review: results reported to the user; no objections raised yet.

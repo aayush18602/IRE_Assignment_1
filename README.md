@@ -119,6 +119,18 @@ click history -- same leak-safe `recent_history_asof` cutoff as Q2, and the same
 Verified locally end-to-end (including `compute_embeddings.py` itself) on a small CPU smoke run
 before handing the real run off to Kaggle.
 
+## Results so far (Q2 vs Q3, full test splits)
+
+See `results/comparison.md` for the full table + discussion. Headline: BM25 beats the raw
+(not fine-tuned) XLM-RoBERTa embedding baseline on every K, on both datasets -- expected, since
+mean-pooled vanilla transformer embeddings are a known-weak retrieval baseline vs. lexical
+methods (it's why Sentence-BERT-style fine-tuning exists).
+
+| Dataset | recall@200 BM25 | recall@200 Embeddings |
+|---|---|---|
+| EB-NeRD | 2.01% | 0.95% |
+| MIND | 1.43% | 0.37% |
+
 ## Tests
 
 Unit tests on synthetic data (BM25 ranking sanity, recall@K edge cases, split

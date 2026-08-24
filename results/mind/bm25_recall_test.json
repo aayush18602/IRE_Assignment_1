@@ -1,0 +1,10 @@
+{
+  "dataset": "mind",
+  "split": "test",
+  "n_impressions": 34519,
+  "n_recent": 10,
+  "n_cold_start": 1052,
+  "recall@50": 0.004468498161102234,
+  "recall@100": 0.008192224856235981,
+  "recall@200": 0.014286721310261628
+}
