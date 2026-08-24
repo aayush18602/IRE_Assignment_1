@@ -56,3 +56,22 @@ def user_embedding(
     if not vectors:
         return None
     return np.mean(vectors, axis=0).astype(np.float32)
+
+
+def score_candidates(
+    user_vec: np.ndarray, candidate_ids: list[str], embedding_lookup: dict[str, np.ndarray]
+) -> list[float]:
+    """Cosine similarity of `user_vec` against each of a *given* set of candidate article ids,
+    in the same order -- for Q4's official-metric re-ranking of an impression's own shown
+    candidates (as opposed to ANNIndex.query()'s full-catalog top-K candidate generation).
+    0.0 for a candidate with no embedding."""
+    u = user_vec / max(np.linalg.norm(user_vec), 1e-9)
+    scores = []
+    for cid in candidate_ids:
+        v = embedding_lookup.get(cid)
+        if v is None:
+            scores.append(0.0)
+            continue
+        v = v / max(np.linalg.norm(v), 1e-9)
+        scores.append(float(np.dot(u, v)))
+    return scores

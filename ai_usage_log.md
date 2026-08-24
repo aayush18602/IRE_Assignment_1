@@ -167,3 +167,39 @@ Claude Code (Anthropic), used interactively in the terminal against this repo.
   distilled from an English-only teacher, so its English quality likely exceeds its Danish
   quality (multilingual extension via distillation, not native multilingual training).
 - Human review: results reported to the user.
+
+### 2026-08-24 — Q4: offline evaluation harness
+
+- Prompt: "yes" (to Claude's suggestion, after the Q3 ablation, to move to Q4 given the 2026-08-27
+  deadline and Q4/Q5/Q6/Q9 all still being unbuilt).
+- AI-generated, entirely: `src/ire_a1/eval.py` (`ranking_metrics` -- AUC/MRR/nDCG@5/nDCG@10 via
+  sklearn over each impression's own shown candidates, not a full-catalog list; `intra_list_
+  category_diversity`, `novelty` vs. train-only popularity, `coverage`; `bootstrap_ci`/
+  `bootstrap_coverage_ci`; `percentile_threshold` for the cold/warm slice); refactored `bm25.py`
+  (`BM25Index._score_all` extracted so `query()` and a new `score_candidates()` share scoring
+  logic) and `ann.py` (new `score_candidates()`) so both methods can score a *given* candidate
+  set (Q4's official-metric re-ranking) as well as their existing full-catalog top-K search (Q2/
+  Q3's candidate generation); `scripts/run_eval.py` (orchestrator); `tests/test_eval.py` (14
+  tests) + new tests in `test_bm25.py`/`test_ann.py` for the candidate-scoring methods.
+- Bug caught and fixed before the full run: cold/warm slicing with a fixed absolute
+  `history_length` threshold (5) produced an empty cold slice for EB-NeRD on a 500-impression
+  smoke test. Investigated with real data rather than assuming a fixed threshold would just
+  work -- confirmed EB-NeRD's small/demo tiers are pre-filtered by the dataset's own creators to
+  a minimum history_length of exactly 5 for every single user (checked via `.describe()` on the
+  full user_history table), while MIND genuinely ranges 0-558. Fixed by switching to a
+  percentile-based threshold (`percentile_threshold`, default 25th percentile of each dataset's
+  own distribution) instead of a fixed count.
+- Second issue caught (not a bug, but confusing if unexplained): the smoke test showed
+  coverage's point estimate (0.5087) falling *outside* its own bootstrap CI [0.4460, 0.4763].
+  Investigated and identified this as a known property of the naive bootstrap applied to
+  set-cardinality statistics (resampling with replacement can only shrink the union of
+  recommended items, never grow it past the true value, biasing the bootstrap distribution
+  downward). Documented explicitly in `bootstrap_coverage_ci`'s docstring and added a
+  `boot_mean` field alongside the point-estimate `mean` so this is visible rather than looking
+  like a bug to a reader.
+- Verification performed: full pytest suite (38/38 passed) before launching real runs;
+  smoke-tested `run_eval.py` on 500 EB-NeRD impressions for both fixes above before committing
+  to full-split runs; full runs for BM25 x {ebnerd, mind} and embeddings x {ebnerd, mind}
+  launched in the background (BM25 expected to take as long as Q2's runs did, since
+  `score_candidates` shares the same `_score_all` cost as `query()`).
+- Human review: not yet reviewed by the user at time of writing (full-run numbers pending).

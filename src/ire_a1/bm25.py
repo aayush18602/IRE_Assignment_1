@@ -54,11 +54,15 @@ class BM25Index:
             term: math.log((self.n_docs - len(plist) + 0.5) / (len(plist) + 0.5) + 1.0)
             for term, plist in self.postings.items()
         }
+        self.doc_id_to_idx: dict[str, int] = {doc_id: i for i, doc_id in enumerate(doc_ids)}
 
-    def query(self, text: str, top_k: int = 200) -> list[tuple[str, float]]:
+    def _score_all(self, text: str) -> dict[int, float]:
+        """doc_idx -> BM25 score, for every document sharing >=1 term with the query. Shared by
+        query() (full-catalog top-K, Q2) and score_candidates() (rank a specific given
+        candidate set, Q4) so both use the exact same scoring, just different output shaping."""
         q_tokens = tokenize(text)
         if not q_tokens or self.n_docs == 0:
-            return []
+            return {}
 
         scores: dict[int, float] = defaultdict(float)
         for term in set(q_tokens):
@@ -70,8 +74,19 @@ class BM25Index:
                 dl = self.doc_lengths[doc_idx]
                 denom = tf + self.k1 * (1 - self.b + self.b * dl / self.avgdl)
                 scores[doc_idx] += idf * (tf * (self.k1 + 1)) / denom
+        return scores
 
+    def query(self, text: str, top_k: int = 200) -> list[tuple[str, float]]:
+        scores = self._score_all(text)
         if not scores:
             return []
         top = heapq.nlargest(top_k, scores.items(), key=lambda kv: kv[1])
         return [(self.doc_ids[doc_idx], score) for doc_idx, score in top]
+
+    def score_candidates(self, text: str, candidate_ids: list[str]) -> list[float]:
+        """BM25 score of `text` against each of a *given* set of candidate doc ids, in the
+        same order -- for Q4's official-metric re-ranking of an impression's own shown
+        candidates (as opposed to query()'s full-catalog top-K candidate generation). 0.0 for a
+        candidate sharing no term with the query, or not present in the index at all."""
+        scores = self._score_all(text)
+        return [scores.get(self.doc_id_to_idx.get(cid, -1), 0.0) for cid in candidate_ids]

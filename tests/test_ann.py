@@ -1,7 +1,7 @@
 import numpy as np
 import polars as pl
 
-from ire_a1.ann import ANNIndex, load_embedding_lookup, user_embedding
+from ire_a1.ann import ANNIndex, load_embedding_lookup, score_candidates, user_embedding
 
 
 def test_ann_index_finds_nearest_neighbor():
@@ -59,3 +59,22 @@ def test_load_embedding_lookup_round_trips(tmp_path):
     lookup = load_embedding_lookup(str(path))
     assert set(lookup.keys()) == {"a", "b"}
     assert np.allclose(lookup["a"], [1.0, 2.0, 3.0])
+
+
+def test_score_candidates_cosine_similarity_and_ordering():
+    lookup = {
+        "a": np.array([1.0, 0.0], dtype=np.float32),
+        "b": np.array([0.0, 1.0], dtype=np.float32),
+        "c": np.array([-1.0, 0.0], dtype=np.float32),
+    }
+    user_vec = np.array([1.0, 0.0], dtype=np.float32)
+    scores = score_candidates(user_vec, ["a", "b", "c"], lookup)
+    assert scores[0] > scores[1] > scores[2]
+    assert scores[0] == 1.0
+    assert scores[2] == -1.0
+
+
+def test_score_candidates_unknown_id_scores_zero():
+    lookup = {"a": np.array([1.0, 0.0], dtype=np.float32)}
+    scores = score_candidates(np.array([1.0, 0.0]), ["a", "missing"], lookup)
+    assert scores[1] == 0.0

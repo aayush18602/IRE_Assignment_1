@@ -134,6 +134,40 @@ distillation.
 | EB-NeRD | **2.01%** | 0.95% | 1.69% |
 | MIND | 1.43% | 0.37% | **2.27%** |
 
+## Reproduce (Q4: offline evaluation harness)
+
+```bash
+python scripts/run_eval.py --dataset ebnerd --method bm25
+python scripts/run_eval.py --dataset ebnerd --method embeddings
+# a second embedding variant (e.g. the mpnet ablation) needs its own --embeddings-file/--candidates-dir:
+python scripts/run_eval.py --dataset ebnerd --method embeddings \
+    --embeddings-file embeddings_mpnet.parquet --candidates-dir data/processed/ebnerd/embeddings_eval_mpnet
+```
+
+Two kinds of metric, computed differently on purpose:
+
+- **AUC, MRR, nDCG@5, nDCG@10** -- computed the way the official MIND/EB-NeRD leaderboards do
+  it: re-rank each impression's own *shown* candidates (`article_ids_inview` / MIND's
+  `impressions` field, already in `impressions_<split>.parquet` from Q1) by BM25/embedding
+  score, compare against the binary click label (`src/ire_a1/eval.py:ranking_metrics`, using
+  sklearn's `roc_auc_score`/`ndcg_score` -- reference implementations, not reimplemented, since
+  the assignment's "build it yourself" instruction was specifically about Q2's inverted index).
+- **Diversity, novelty, coverage** -- computed over each method's actual top-K *recommended*
+  list (Q2/Q3's saved `candidates_<split>.parquet`), since these are about the system's output
+  as a whole, not a re-ranking of a handful of given candidates. Diversity = fraction of unique
+  categories in a list (comparable across BM25/embeddings without needing embeddings for BM25
+  candidates). Novelty = mean self-information vs. TRAIN-only popularity (never test, to avoid
+  leakage). Coverage = fraction of the catalog touched by any recommendation.
+- **Slicing**: cold vs. warm users, split at a **percentile** (default 25th) of each dataset's
+  own `history_length` distribution, not a fixed count -- EB-NeRD's small/demo tiers are
+  pre-filtered by the dataset's creators to a minimum history_length of 5 for every user, so a
+  fixed threshold produced an empty cold slice there until this was caught and fixed.
+- **Bootstrap 95% CIs** on every metric, resampling impressions with replacement. Coverage's CI
+  has a documented quirk: the point estimate can legitimately fall outside its own bootstrap CI
+  (known downward bias of the naive bootstrap for set-cardinality statistics) -- both the direct
+  point estimate (`mean`) and the bootstrap distribution's own mean (`boot_mean`) are reported
+  so this is visible rather than looking like a bug.
+
 ## Tests
 
 Unit tests on synthetic data (BM25 ranking sanity, recall@K edge cases, split

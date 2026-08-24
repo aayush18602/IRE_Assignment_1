@@ -64,3 +64,19 @@ def test_recall_at_k_full_and_partial_hit():
 
 def test_recall_at_k_no_ground_truth_returns_none():
     assert recall_at_k(["a", "b"], [], k=10) is None
+
+
+def test_score_candidates_matches_query_scores_and_ordering():
+    doc_ids = ["a", "b", "c"]
+    texts = ["ice hockey goal", "royal family news", "weather forecast"]
+    index = BM25Index(doc_ids, texts)
+
+    query_scores = dict(index.query("ice hockey", top_k=3))
+    candidate_scores = index.score_candidates("ice hockey", ["c", "a", "b"])
+    assert candidate_scores[1] == query_scores["a"]  # "a" is the ice-hockey doc
+    assert candidate_scores[0] == 0.0  # "c" (weather) shares no term with the query
+
+
+def test_score_candidates_unknown_id_scores_zero():
+    index = BM25Index(["a"], ["hello world"])
+    assert index.score_candidates("hello", ["a", "does_not_exist"]) == [index.query("hello")[0][1], 0.0]
