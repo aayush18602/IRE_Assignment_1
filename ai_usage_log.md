@@ -331,3 +331,27 @@ Claude Code (Anthropic), used interactively in the terminal against this repo.
   -- expected, since cosine similarity against a handful of candidates has no term/postings
   work at all, unlike BM25's targeted-but-still-per-term scoring.
 - Human review: not yet reviewed by the user at time of writing (full runs in progress).
+
+### 2026-08-26 — Q5: embeddings submission runs interrupted then completed
+
+- Mid-run, VSCode closed unexpectedly ("actually i was out for a while and vscode close
+  automatically"), killing both background generation jobs before either wrote meaningful
+  output (MIND's file was 0 bytes, EB-NeRD's didn't exist yet). Checked git status, running
+  processes, and output file state directly rather than assuming anything -- found one
+  uncommitted ai_usage_log.md edit (committed, a4691f9), confirmed the large-tier embeddings
+  inputs were untouched on disk (process kills don't affect already-saved files), deleted the
+  two partial/empty outputs, and relaunched both.
+- User then said "dont relaunch both, launch one by one" -- had already relaunched both in
+  parallel; stopped the MIND job (TaskStop), cleaned up its partial output again, and let
+  EB-NeRD finish alone before starting MIND.
+- Both completed and validated with the same rigor as every other Q5 run: exact line-count
+  match (13,536,710 EB-NeRD, 2,370,727 MIND), 2,000-row random-sample permutation check against
+  real source data (0 malformed lines either dataset), correct zip contents. EB-NeRD embeddings
+  took 10.3 min (vs BM25's 19.0 min), MIND embeddings took 4.4 min (vs BM25's 14.3 min) --
+  faster than BM25 as predicted, since cosine similarity has no term/postings work at all.
+- Human review: user asked "check once" when unsure whether a scheduled status check had fired
+  -- it had, just concurrently with their message; reported the actual state rather than
+  guessing. Both embedding-based submission files now ready alongside the original BM25 ones:
+  `predictions_embeddings.zip` (EB-NeRD) and `mind_prediction_embeddings.zip` (MIND). Remaining
+  manual steps: user uploads both to Codabench (EB-NeRD allows 5/day, MIND only 1/day) and
+  screenshots both leaderboard results for Q6's two-approach comparison.

@@ -231,6 +231,24 @@ MIND predictions in 14.3 min. Every line format-checked against the source data 
 dataset) -- valid permutation of the correct length, row order preserved (both competitions
 require this), full impression_id coverage confirmed via exact line-count match.
 
+### Second variant: embeddings
+
+For Q6's "tried two approaches" comparison, `generate_submission.py` also supports
+`--method embeddings`, needing large-tier article embeddings (a *different* catalog than Q3's
+small-tier ones -- 125,541/120,961 articles, computed via `compute_embeddings.py` on Kaggle with
+the fine-tuned `paraphrase-multilingual-mpnet-base-v2`, our strongest performer from Q3/Q4):
+
+```bash
+python scripts/generate_submission.py --dataset ebnerd --method embeddings
+python scripts/generate_submission.py --dataset mind --method embeddings
+```
+
+Output: `predictions_embeddings.zip` / `mind_prediction_embeddings.zip` (same required internal
+filenames as the BM25 variant -- only the local working filename differs, so nothing clobbers
+the original submission). Completed and validated the same way: 13,536,710 EB-NeRD predictions
+in **10.3 min**, 2,370,727 MIND predictions in **4.4 min** -- both faster than BM25, since
+cosine similarity against a handful of candidates has no term/postings work at all.
+
 ## Tests
 
 Unit tests on synthetic data (BM25 ranking sanity, recall@K edge cases, split
