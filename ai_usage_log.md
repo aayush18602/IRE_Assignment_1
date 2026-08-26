@@ -296,3 +296,38 @@ Claude Code (Anthropic), used interactively in the terminal against this repo.
   checked format correctness, not competition-specific naming rules). Both submission files
   are now generated, fixed, and validated. Remaining manual steps for the user: register/upload
   both zips to the two Codabench competitions, screenshot the leaderboard results for Q6.
+
+### 2026-08-26 — Q5: second submission variant (embeddings) for Q6's comparison
+
+- Prompt: MIND leaderboard score came back (AUC 0.5675, MRR 0.2731, nDCG@5 0.2886, nDCG@10
+  0.3436 -- recorded in results/mind/codabench_leaderboard.md, three of four metrics higher
+  than our own offline Q4 estimate on the small split, good evidence the pipeline generalizes).
+  User then asked which method the submissions used (BM25 only, confirmed via grep -- no
+  ann.py/embeddings import in generate_submission.py) and asked for a second, embeddings-based
+  submission "to show that I tried two approaches" for Q6.
+- Identified before writing code: our existing embeddings.parquet files only cover the
+  small-tier catalogs (20,738/65,238 articles) -- the large test sets reference a different,
+  bigger catalog (125,541/120,961 articles), so a fresh Kaggle embedding run was needed against
+  newly-extracted large-tier article files, not reusable from Q3.
+- Asked the user which model to use for this (AskUserQuestion: fine-tuned mpnet vs. raw
+  xlm-roberta-base) rather than defaulting silently, recommending mpnet since it was the
+  stronger performer in Q3/Q4 (beat BM25 outright on MIND) -- user agreed.
+- AI-generated: extracted lean large-tier article files (article_id/title/abstract only, 7.9MB/
+  14MB) to `data/processed_large/{ebnerd,mind}/articles.parquet` for Kaggle upload; refactored
+  `generate_submission.py` to add `--method {bm25,embeddings}` via a shared build_user_repr/
+  score closure pattern (same structure as Q4's run_eval.py) so both methods reuse the same
+  batching/caching/output logic instead of a duplicated script; local output filenames now
+  include the method to avoid clobbering the already-submitted BM25 files, while the zip's
+  required internal filename stays fixed per competition regardless of method.
+- Verification performed, same rigor as the first Q5 round: full pytest suite (42/42) after the
+  refactor; regression-tested the BM25 path still works (500-row smoke test) and the embeddings
+  path fails cleanly with an actionable error when the large-tier embeddings file doesn't exist
+  yet (correct behavior, not a bug) -- both checked *before* asking the user to spend Kaggle
+  time; validated the returned large-tier embeddings the same way as the first round (row
+  counts, no NaN/zero vectors, full id overlap, 768-dim) before use; 5,000-row smoke test for
+  both datasets, format-validated against real source data (0 malformed lines either dataset)
+  before launching the full runs. Embeddings scoring benchmarked faster than BM25 in the smoke
+  tests (23,412 imp/s EB-NeRD vs. BM25's 13,526 imp/s; 8,900 imp/s MIND vs. BM25's ~2,800 imp/s)
+  -- expected, since cosine similarity against a handful of candidates has no term/postings
+  work at all, unlike BM25's targeted-but-still-per-term scoring.
+- Human review: not yet reviewed by the user at time of writing (full runs in progress).
