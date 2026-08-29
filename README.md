@@ -249,6 +249,15 @@ the original submission). Completed and validated the same way: 13,536,710 EB-Ne
 in **10.3 min**, 2,370,727 MIND predictions in **4.4 min** -- both faster than BM25, since
 cosine similarity against a handful of candidates has no term/postings work at all.
 
+## Design Note (Q6)
+
+`design_note.md` (source) / `design_note.pdf` (rendered, 3 pages -- regenerate with any
+markdown-to-PDF tool, e.g. the pure-Python `markdown`+`xhtml2pdf` toolchain used here) covers
+what was built, design choices and alternatives, experimental observations (candidate
+generation vs. official ranking task, dataset differences, real Codabench results), and where
+the pipeline breaks at 10x scale. Leaderboard screenshot at
+`results/screenshots/mind_leaderboard.png`.
+
 ## Tests
 
 Unit tests on synthetic data (BM25 ranking sanity, recall@K edge cases, split

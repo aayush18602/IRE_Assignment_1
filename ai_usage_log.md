@@ -355,3 +355,36 @@ Claude Code (Anthropic), used interactively in the terminal against this repo.
   `predictions_embeddings.zip` (EB-NeRD) and `mind_prediction_embeddings.zip` (MIND). Remaining
   manual steps: user uploads both to Codabench (EB-NeRD allows 5/day, MIND only 1/day) and
   screenshots both leaderboard results for Q6's two-approach comparison.
+
+### 2026-08-30 — Q6: design note drafted, real MIND leaderboard results confirmed
+
+- Prompt: user shared a Codabench submissions screenshot showing MIND scores (BM25 0.5675,
+  embeddings/mpnet 0.6218 -- both "Score" column, i.e. AUC) and asked for the Q6 design note.
+- AI-generated: `design_note.md`, structured around the 4 required sections (what was built,
+  design choices/alternatives, experimental observations, where it breaks at 10x), pulling
+  exact numbers from `results/comparison.md`, `results/eval_comparison.md`, and `results/mind/
+  codabench_leaderboard.md` rather than from memory -- re-read each source file before writing
+  the corresponding table to avoid transcription drift across a project with this many numbers.
+- Bug caught by the user: the first draft's §3.3 table had an MRR row reading "MRR | 0.2731 |
+  (EB-NeRD result pending)" -- the "EB-NeRD pending" placeholder had been misplaced into what
+  should have been a MIND-embeddings MRR cell, and MRR was never actually available for the
+  embeddings submission (the real screenshot only exposes a single "Score" = AUC column, not a
+  full metric breakdown) -- a genuine fabrication risk caught before it shipped. Fixed by
+  dropping the MRR row entirely (we only have AUC for the real leaderboard) and moving the
+  EB-NeRD-pending note to a plain sentence outside the table.
+- User also asked to embed the actual screenshot image, noting it wasn't present yet. Rather
+  than ask for a file upload, searched the filesystem directly (`find` for recently-modified
+  PNGs) and located it at `~/Pictures/Screenshots/Screenshot from 2026-08-30 00-16-45.png`;
+  read it with the Read tool to confirm it was the right image (matched the scores exactly)
+  before copying it into `results/screenshots/mind_leaderboard.png` and embedding it via
+  markdown image syntax.
+- User asked for an actual PDF, not just markdown. No pandoc/wkhtmltopdf/weasyprint/node
+  available locally (checked directly rather than assuming); installed a pure-Python toolchain
+  (`markdown` + `xhtml2pdf` + `pypdf`, no system rendering libraries needed) and wrote a
+  one-off conversion script. Verified rather than assumed correctness: checked the PDF's actual
+  page count via `pypdf` (3 pages, within the "≤4 pages" limit) and re-read the rendered PDF
+  itself (via the Read tool, which can read PDFs) to visually confirm the embedded image
+  displays correctly and the corrected table renders as intended, before calling this done.
+- Human review: fixes made in response to two real user-caught issues (misplaced pending-note
+  fabrication risk, missing image); not yet reviewed further at time of writing. EB-NeRD's
+  Codabench scores still pending -- design note has a clearly marked placeholder for them.
