@@ -388,3 +388,15 @@ Claude Code (Anthropic), used interactively in the terminal against this repo.
 - Human review: fixes made in response to two real user-caught issues (misplaced pending-note
   fabrication risk, missing image); not yet reviewed further at time of writing. EB-NeRD's
   Codabench scores still pending -- design note has a clearly marked placeholder for them.
+
+### 2026-08-30 — Q9 folded into the design note; PDF re-verified
+
+- After Q9's implementation and full-scale runs (see the Q9 entry above), added `results/
+  anti_gaming_comparison.md` (writeup) and a new §4 in `design_note.md` summarizing the
+  leaky-vs-safe popularity finding, renumbered the following sections, and corrected the stale
+  "42 unit/integration tests" claim in §1 to 51 (Q9 added 9 new tests).
+- Verification performed: regenerated `design_note.pdf` via the same pure-Python toolchain,
+  re-checked the page count (still 3, unaffected by the new section), and re-read the rendered
+  PDF (pages 2-3) directly to visually confirm the new §4 table and prose render correctly and
+  the section numbering is consistent end to end -- not assumed from the source markdown alone.
+- Human review: not yet reviewed by the user at time of writing.

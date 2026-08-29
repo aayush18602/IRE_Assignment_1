@@ -24,8 +24,11 @@ one code path for both:
   cold/warm slicing, bootstrap 95% CIs on every metric.
 - **Q5 — Codabench submission**: both BM25 and embeddings re-ranking, run at the actual
   large-test-set scale (13.5M EB-NeRD / 2.37M MIND impressions).
-- **Testing**: 42 unit/integration tests (`pytest`), covering the split's leakage invariant,
-  BM25/ANN scoring correctness, eval-metric edge cases, and submission-format correctness.
+- **Q9 — Anti-gaming**: a deliberately-constructed leaky-feature ablation (§4) and a dedicated
+  no-leakage test suite (`tests/test_no_leakage.py`).
+- **Testing**: 51 unit/integration tests (`pytest`), covering the split's leakage invariant,
+  BM25/ANN scoring correctness, eval-metric edge cases, submission-format correctness, and the
+  Q9 leaky-vs-safe popularity scoping.
 
 ## 2. Design Choices & Alternatives Considered
 
@@ -118,7 +121,28 @@ not as an artifact of the development split.
 **Fig. 1 — MIND Codabench leaderboard.** `mind_prediction_embeddings.zip` scored 0.6218,
 `mind_prediction.zip` (BM25) scored 0.5675.
 
-## 4. Where It Breaks at 10× Scale
+## 4. Anti-Gaming (Q9): metrics with vs. without a serving-time-unavailable feature
+
+Q2/Q3 never use a leaky feature to begin with, so there was nothing to compare against without
+deliberately constructing one. We blended BM25's score with `log1p(article popularity)`, computed
+either **safe** (click counts from TRAIN only, which precedes val/test in our split) or
+**LEAKY** (click counts including val+test's own clicks — the period being evaluated):
+
+| Metric | EB-NeRD BM25 | EB-NeRD +safe pop. | EB-NeRD +LEAKY pop. | MIND BM25 | MIND +safe pop. | MIND +LEAKY pop. |
+|---|---|---|---|---|---|---|
+| AUC | 0.497 | 0.469 | **0.543** | 0.545 | 0.553 | **0.564** |
+
+The leaky variant beats the safe variant on every metric, both datasets, with non-overlapping
+95% CIs across 71,631/34,519 impressions — real, statistically clear metric inflation, not
+noise. The *size* of the inflation tracks the underlying data: EB-NeRD's popularity distribution
+shifts hugely from train-only to train+val+test (median clicked-article count 17→74), so the gap
+is large (+0.073 AUC); MIND's shift is much smaller (median 2→3), so the gap is smaller
+(+0.011) but still clearly present. Severity of a leakage bug depends on the data, not just its
+existence. (Full numbers: `results/anti_gaming_comparison.md`.) Leak-freedom of the actual
+pipeline is enforced and tested in `tests/test_no_leakage.py`, including an integration check
+against the real generated EB-NeRD/MIND splits, not just synthetic examples.
+
+## 5. Where It Breaks at 10× Scale
 
 We hit this wall directly, not hypothetically. Q2's BM25 evaluation ran at ~70–80 impressions/s
 on the 34K–72K-row small test splits. The large test sets are 69–190x bigger (2.37M / 13.5M
@@ -143,6 +167,6 @@ better; (3) EB-NeRD's/MIND's history being a **fixed pre-period snapshot** means
 freshness is capped regardless of scale — a production system would need incrementally updated
 user profiles, which neither dataset's schema supports as-is.
 
-## 5. AI Usage
+## 6. AI Usage
 
 Full prompt-level log with verification steps at `ai_usage_log.md`.
