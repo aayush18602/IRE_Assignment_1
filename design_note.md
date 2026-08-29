@@ -108,13 +108,22 @@ Cold vs. warm (25th-percentile split): AUC drops for cold users in 3 of 4 runs, 
 |---|---|---|
 | AUC | 0.5675 | **0.6218** |
 
-EB-NeRD's leaderboard scores are pending as of writing (submission was still processing on
-Codabench's end) and will be added once available. This is the strongest evidence in the whole
-report: on MIND's real 2.37M-impression held-out test set, embeddings **beat** BM25 by a full
-0.054 AUC — the same direction as §3.2's offline finding, now confirmed against genuine ground
-truth. It also validates generalization: MIND BM25's real AUC (0.5675) came in *above* our
-offline small-split estimate (0.545), meaning the pipeline behaves consistently at 69x scale,
-not as an artifact of the development split.
+**EB-NeRD's leaderboard scores are not available to report.** `predictions.zip` was submitted
+on 2026-08-24; as of writing (six days later) Codabench still shows its status as
+**"Submitted"** rather than "Finished" or "Failed", well past the "up to a few hours" the
+competition's own guidelines promise. We verified this is not an error on our side before
+concluding it's a platform-side delay: re-checked zip integrity (`zipfile.testzip()`, no
+corruption), re-confirmed the required internal filename (`predictions.txt`), and re-ran the
+2,000-row random-sample format validation against the original submission -- all clean. With no
+error log or failure state to act on, there is nothing further to fix locally; this is recorded
+here as the honest state of that submission rather than a fabricated or extrapolated number.
+
+MIND's real result is nonetheless the strongest evidence in the whole report: on its real
+2.37M-impression held-out test set, embeddings **beat** BM25 by a full 0.054 AUC — the same
+direction as §3.2's offline finding, now confirmed against genuine ground truth. It also
+validates generalization: MIND BM25's real AUC (0.5675) came in *above* our offline small-split
+estimate (0.545), meaning the pipeline behaves consistently at 69x scale, not as an artifact of
+the development split.
 
 ![Fig. 1 — MIND Codabench leaderboard: mind_prediction_embeddings.zip scored 0.6218, mind_prediction.zip (BM25) scored 0.5675.](results/screenshots/mind_leaderboard.png)
 
