@@ -10,8 +10,23 @@
   about -- they don't make sense evaluated against a handful of officially-shown candidates.
 - Bootstrap 95% CIs: resample impressions with replacement, recompute the mean each time.
 """
+from collections import defaultdict
+
 import numpy as np
 from sklearn.metrics import ndcg_score, roc_auc_score
+
+
+def article_popularity(clicked_lists: list[list[str]]) -> dict[str, int]:
+    """Click counts per article_id, from whatever set of impressions' `clicked` columns the
+    caller passes in -- e.g. only the train split (Q9's serving-time-safe popularity, since
+    train entirely precedes val/test in the temporal split) vs. train+val+test combined (Q9's
+    deliberately-leaky popularity, since it uses clicks from the very period being evaluated).
+    Caller decides which impressions belong in the count; this function just counts."""
+    counts: dict[str, int] = defaultdict(int)
+    for clicked in clicked_lists:
+        for article_id in clicked:
+            counts[article_id] += 1
+    return dict(counts)
 
 
 def ranking_metrics(scores: list[float], labels: list[int]) -> dict[str, float | None]:

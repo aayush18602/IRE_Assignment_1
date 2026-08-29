@@ -258,6 +258,26 @@ generation vs. official ranking task, dataset differences, real Codabench result
 the pipeline breaks at 10x scale. Leaderboard screenshot at
 `results/screenshots/mind_leaderboard.png`.
 
+## Reproduce (Q9: Anti-Gaming)
+
+```bash
+python scripts/run_anti_gaming.py --dataset ebnerd
+python scripts/run_anti_gaming.py --dataset mind
+```
+
+Our actual retrieval methods (Q2/Q3) never touch a serving-time-unavailable feature -- the
+query is built only from a user's *past* clicks, candidates are scored on static text. So
+there's no naturally-occurring leaky version of the pipeline to report against. This script
+builds one deliberately, to measure and report the risk Q9 asks about: blends BM25's score with
+an article-popularity feature computed two ways -- "safe" (click counts from the TRAIN split
+only, which entirely precedes val/test in `temporal_split`) vs. "LEAKY" (click counts including
+val+test's own clicks -- literally the period being evaluated). Reports AUC/MRR/nDCG@5/nDCG@10
+for BM25-alone / BM25+safe / BM25+LEAKY. `tests/test_no_leakage.py` is the dedicated,
+consolidated test for the "no future-click leakage" guarantee Q9 also asks for (the underlying
+logic is exercised across the codebase, but this is the one file to look for it) -- includes
+both synthetic-data unit tests and an integration-level check against the real generated
+EB-NeRD/MIND splits.
+
 ## Tests
 
 Unit tests on synthetic data (BM25 ranking sanity, recall@K edge cases, split

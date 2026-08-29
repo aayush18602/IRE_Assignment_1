@@ -1,6 +1,7 @@
 import numpy as np
 
 from ire_a1.eval import (
+    article_popularity,
     bootstrap_ci,
     bootstrap_coverage_ci,
     cold_warm_slice,
@@ -106,3 +107,26 @@ def test_percentile_threshold():
     values = list(range(1, 101))  # 1..100
     assert abs(percentile_threshold(values, 25.0) - 25.75) < 0.1
     assert percentile_threshold([], 25.0) == 0.0
+
+
+def test_article_popularity_counts_clicks_per_article():
+    clicked_lists = [["a"], ["a", "b"], ["b"], []]
+    assert article_popularity(clicked_lists) == {"a": 2, "b": 2}
+
+
+def test_article_popularity_empty_input():
+    assert article_popularity([]) == {}
+
+
+def test_article_popularity_safe_vs_leaky_scoping():
+    # Q9: "safe" popularity (train only) must not be affected by clicks that only occur in
+    # val/test -- an article clicked only in test must be invisible to the safe count, and
+    # only appear once val/test clicks are deliberately included (the leaky variant).
+    train_clicked = [["a"], ["a"]]
+    test_clicked = [["b"], ["b"], ["b"]]
+    safe = article_popularity(train_clicked)
+    leaky = article_popularity(train_clicked + test_clicked)
+    assert "b" not in safe
+    assert safe["a"] == 2
+    assert leaky["b"] == 3
+    assert leaky["a"] == 2
