@@ -1,6 +1,6 @@
 # Design Note — Lexical & Semantic Retrieval on EB-NeRD and MIND
 
-CS4.406 Information Retrieval & Extraction, Assignment 1. Code: `aayush18602/IRE_Assignment_1`.
+CS4.406 Information Retrieval & Extraction, Assignment 1. Code: https://github.com/aayush18602/IRE_Assignment_1
 
 ## 1. What We Built
 
