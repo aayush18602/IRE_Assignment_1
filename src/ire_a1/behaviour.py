@@ -235,3 +235,111 @@ class HistoryFeatures:
                 .cast(pl.Float32).alias("dwell_affinity")
             )
         return out.select(exprs).select(self.feature_names)
+
+
+# ---------------------------------------------------------------------------
+# A2 Q1.2: session context, in-session dwell, and slate position
+# ---------------------------------------------------------------------------
+# These are stateless -- they are derived from the impressions frame itself rather than from a
+# fitted index, so they are plain functions rather than another builder class.
+#
+# Two boundaries matter here and both are easy to get wrong:
+#
+# 1. **"So far" must exclude the current impression.** `session_length` (impressions in the whole
+#    session) counts impressions that have not happened yet when this one is ranked, so it is
+#    leakage dressed as context. Every counter below is strictly-previous, computed as
+#    `cum_sum() - value` rather than a shift, which has no null-at-the-boundary case to fumble.
+# 2. **`read_time` from *previous* impressions in the session is serving-safe**, even though the
+#    current impression's own `read_time` is in `schema.LEAKY_IMPRESSION_COLS`. The distinction is
+#    the same one that makes history dwell safe: a click that already happened is knowable; the
+#    one being predicted is not.
+
+DEFAULT_SESSION_GAP_MINUTES = 30.0
+
+SLATE_FEATURE_NAMES = ["pos_in_slate", "slate_size", "pos_relative"]
+SESSION_FEATURE_NAMES = [
+    "impressions_so_far_in_session",
+    "secs_since_session_start",
+    "is_session_start",
+    "session_dwell_so_far",
+    "clicks_so_far_in_session",
+]
+# `clicks_so_far_in_session` needs click labels for earlier impressions, which neither Codabench
+# test set supplies. session_id and read_time *are* present in EB-NeRD's test file (both 100%
+# non-null), so the rest survive submission.
+SUBMISSION_SAFE_SESSION_FEATURES = [n for n in SESSION_FEATURE_NAMES
+                                    if n != "clicks_so_far_in_session"]
+
+
+def explode_candidates(impressions: pl.DataFrame, keep: tuple[str, ...] = ()) -> pl.DataFrame:
+    """Impressions -> one row per (impression, candidate), carrying slate position.
+
+    Position is the candidate's index in `candidates` as the platform ordered it, which is the
+    position-bias signal Q1.2 asks for -- so the list order must not be sorted or deduplicated
+    anywhere upstream of here.
+    """
+    cols = ["impression_id", "user_id", "candidates"] + [c for c in keep if c not in
+                                                         ("impression_id", "user_id", "candidates")]
+    out = (impressions.select(*cols, as_of="timestamp")
+                      .with_columns(slate_size=pl.col("candidates").list.len().cast(pl.Float32))
+                      .with_columns(pos_in_slate=pl.int_ranges(0, pl.col("candidates").list.len()))
+                      .explode(["candidates", "pos_in_slate"], empty_as_null=False)
+                      .rename({"candidates": "article_id"}))
+    return out.with_columns(
+        pos_in_slate=pl.col("pos_in_slate").cast(pl.Float32),
+        pos_relative=(pl.col("pos_in_slate").cast(pl.Float32) / pl.col("slate_size")),
+    )
+
+
+def session_features(
+    impressions: pl.DataFrame, *, gap_minutes: float = DEFAULT_SESSION_GAP_MINUTES
+) -> pl.DataFrame:
+    """One row per impression, keyed by `impression_id`, with the Q1.2 session columns.
+
+    **Pass the whole set of impressions being scored, not a batch.** Sessions straddle any
+    row-count boundary, so computing this per batch would silently restart the counters mid-session;
+    it is a single cheap pass over the impression table, and the result joins onto exploded
+    candidate rows afterwards.
+
+    EB-NeRD supplies `session_id` directly. MIND has none, so sessions are derived from gaps in a
+    user's impression sequence -- with the caveat that MIND averages 3.03 impressions per *user*,
+    so most derived sessions are singletons and these features carry little there. That is a
+    finding to report, not a reason to special-case the dataset.
+    """
+    has_session_id = ("session_id" in impressions.columns
+                      and impressions["session_id"].null_count() < impressions.height)
+
+    df = impressions.sort(["user_id", "timestamp", "impression_id"])
+    if has_session_id:
+        df = df.with_columns(_session=pl.col("session_id"))
+    else:
+        new_session = (
+            pl.col("timestamp").diff().over("user_id").dt.total_seconds() > gap_minutes * 60
+        ).fill_null(True)          # a user's first impression always opens a session
+        df = df.with_columns(
+            _session=pl.col("user_id") + "#" + new_session.cum_sum().over("user_id").cast(pl.Utf8)
+        )
+
+    n_clicks = (pl.col("clicked").list.len().cast(pl.Float64)
+                if "clicked" in df.columns else pl.lit(0.0))
+    dwell = (pl.col("read_time").cast(pl.Float64).fill_null(0.0)
+             if "read_time" in df.columns else pl.lit(0.0))
+
+    df = df.with_columns(_n_clicks=n_clicks, _dwell=dwell)
+    prev_n = pl.col("_n_clicks").cum_count().over("_session") - 1
+    return df.with_columns(
+        impressions_so_far_in_session=prev_n.cast(pl.Float32),
+        secs_since_session_start=(
+            (pl.col("timestamp") - pl.col("timestamp").min().over("_session"))
+            .dt.total_seconds().cast(pl.Float32)
+        ),
+        is_session_start=(prev_n == 0).cast(pl.Float32),
+        # strictly-previous sums: cum_sum() includes the current row, so subtract it back out
+        clicks_so_far_in_session=(
+            (pl.col("_n_clicks").cum_sum().over("_session") - pl.col("_n_clicks")).cast(pl.Float32)
+        ),
+        session_dwell_so_far=(
+            ((pl.col("_dwell").cum_sum().over("_session") - pl.col("_dwell"))
+             / pl.max_horizontal(prev_n, pl.lit(1))).cast(pl.Float32)
+        ),
+    ).select(["impression_id"] + SESSION_FEATURE_NAMES)

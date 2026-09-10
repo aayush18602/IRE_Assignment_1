@@ -31,7 +31,7 @@ name against it, if a `TBD` item is marked `done` without first being assigned, 
 |---|---|---|---|---|
 | Q1-A | Widen schema and `clean.py` for behavioural columns | Aayush | done | Aayush, 2026-09-11 |
 | Q1-B | Click-history features, exponential recency decay, category match | Aayush | done | Aayush, 2026-09-11 |
-| Q1-C | Session context, dwell, position bias | Aayush | todo | — |
+| Q1-C | Session context, dwell, position bias | Aayush | done | Aayush, 2026-09-11 |
 | Q1-D | Article features: trailing-window popularity, CTR, freshness | Aayush | done | Aayush, 2026-09-11 |
 | Q1-E | Behaviour-window boundary enforcement + leakage tests | Aayush | todo | — |
 | Q2-A1 | Feature matrix builder and impression grouping — **shared substrate** | Aayush | todo | — |
@@ -82,6 +82,43 @@ The most important section. If it is empty, nobody is stuck.
 ## Decisions taken
 
 Append-only. One entry per decision that someone else would otherwise re-litigate.
+
+### 2026-09-11 — Measure features by PER-IMPRESSION AUC, never pooled
+
+I had been reporting pooled AUC across all candidate rows. That is the wrong metric and it
+flatters features that cannot possibly help. The leaderboard re-ranks each impression's *own*
+slate, so **a feature that is constant within an impression cannot reorder anything**, whatever its
+pooled number says.
+
+| feature | pooled AUC | per-impression AUC |
+|---|---|---|
+| `slate_size` | 0.3088 | **0.5000** (constant within impression) |
+| `hist_len` | 0.5157 | **0.5000** (constant) |
+| `is_session_start` | 0.5267 | **0.5000** (constant) |
+| `ctr_1h` | 0.7139 | **0.7387** (varies — genuinely strong) |
+
+**This does not mean the constant features are worthless** — a GBDT can use them as interaction
+context ("when `hist_len` is high, trust `cat_affinity` more"), and LambdaRank groups by impression
+so it will not be fooled the way pooled AUC was. It means they have no *standalone* ranking power
+and must never be reported as though they do. Every feature number in the design note must be
+per-impression.
+
+Fast way to compute it, since a million `roc_auc_score` calls does not finish: the rank identity
+`AUC = (Σ positive ranks − npos(npos+1)/2) / (npos·nneg)`, one vectorised pass grouped by
+impression.
+
+### 2026-09-11 — Neither dataset exposes usable position bias
+
+Q1.2 asks for position bias. Implemented it, measured it, and the data does not support it:
+`pos_in_slate` scores per-impression AUC **0.5006** (EB-NeRD) and **0.4990** (MIND) — random,
+despite varying in 100% of impressions.
+
+Its pooled AUC of 0.3779 is real but comes entirely from `slate_size`: small slates have both low
+positions and a high per-candidate click rate, and that correlation vanishes once you compare
+candidates *within* one slate. The candidate lists are not sorted (0.1% / 2.5% are in ascending id
+order), so this is not an artifact of our cleaning — the ordering in `article_ids_inview` simply is
+not display order. Report it as a measured negative result; the feature stays in because its cost
+is zero and its absence would need explaining anyway.
 
 ### 2026-09-11 — Recency decay on the click history is close to inert
 
@@ -213,9 +250,13 @@ Append-only. Things that cost someone time — write them down so they cost only
 - **Dwell beats recency as a history weight.** On EB-NeRD `dwell_affinity` (0.5720) is the
   strongest user-side feature, above both decayed (0.5702) and raw (0.5693) category affinity.
   MIND has no dwell instrumentation, so it has no equivalent.
-- **Item-side features dominate user-side ones.** Best from `Q1-D` is `ctr_1h` at ~0.71; best from
-  `Q1-B` is ~0.57. What is popular right now predicts clicks far better than who the user is —
-  worth stating plainly in the design note rather than letting the tables imply it.
+- **Item-side features dominate user-side ones.** Per-impression AUC on EB-NeRD: `ctr_1h` 0.7387,
+  `pop_clicks_24h` 0.7370, `ctr_24h` 0.7298 — versus `dwell_affinity` 0.5633 and `cat_affinity`
+  0.5598 as the best user-side features. What is popular right now predicts clicks far better than
+  who the user is. Worth stating plainly in the design note rather than letting the tables imply it.
+- **MIND's derived sessions are 93.3% singletons** (EB-NeRD: 48.5% session starts). Every MIND
+  session feature scores per-impression AUC 0.5000. Implemented, measured, reported — not
+  special-cased.
 - **News popularity has a ~1h half-life.** Shifting the observation point back from an impression:
   `ctr_1h` AUC 0.714 at lag 0, 0.638 at 1h, 0.502 at 6h, 0.467 at 24h. Trailing windows must be
   hours, not days — and EB-NeRD's train split spans only 10 days, MIND's 6, so a 7d window is
@@ -235,6 +276,18 @@ Append-only. Things that cost someone time — write them down so they cost only
 ## Session log — Aayush
 
 Newest entry at the top. Only Aayush edits this section.
+
+### 2026-09-11 — Q1-C: session context, dwell, slate position
+
+**Item(s):** `Q1-C` — done.
+**Did:** Added `explode_candidates()` and `session_features()` to `behaviour.py` — stateless, so
+functions rather than another builder. Sessions come from `session_id` on EB-NeRD and from
+30-minute timestamp gaps on MIND. Every in-session counter is strictly-previous
+(`cum_sum() - value`, no shift-null case). 9 tests (91 total, was 82).
+**State:** Works, and it surfaced the measurement mistake below — worth reading before Q2.
+**Next:** `Q1-E` — boundary and leakage tests across all three feature modules.
+**For Anurag:** the per-impression AUC point below applies to your `Q2-B` and `Q3` evaluation too.
+Pooled AUC will flatter your model; the leaderboard metric is per-impression.
 
 ### 2026-09-11 — Q1-B: user-side history features
 

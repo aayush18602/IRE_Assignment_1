@@ -9,7 +9,13 @@ import numpy as np
 import polars as pl
 import pytest
 
-from ire_a1.behaviour import HistoryFeatures
+from ire_a1.behaviour import (
+    SESSION_FEATURE_NAMES,
+    SUBMISSION_SAFE_SESSION_FEATURES,
+    HistoryFeatures,
+    explode_candidates,
+    session_features,
+)
 
 T0 = datetime(2024, 3, 1, 12, 0, 0)
 
@@ -177,3 +183,105 @@ def test_output_is_row_aligned_with_input():
 def test_transform_rejects_rows_without_user_id():
     with pytest.raises(ValueError, match="user_id"):
         _timed_hf().transform(pl.DataFrame({"article_id": ["a"], "as_of": [T0]}))
+
+
+# --- Q1.2: slate position and session context ---------------------------------------------
+
+def _impressions(rows) -> pl.DataFrame:
+    """rows: (impression_id, user_id, timestamp, candidates, clicked, read_time, session_id)"""
+    keys = ("impression_id", "user_id", "timestamp", "candidates", "clicked", "read_time",
+            "session_id")
+    return pl.DataFrame(
+        {k: [r[i] for r in rows] for i, k in enumerate(keys)},
+        schema={"impression_id": pl.Utf8, "user_id": pl.Utf8, "timestamp": pl.Datetime("us"),
+                "candidates": pl.List(pl.Utf8), "clicked": pl.List(pl.Utf8),
+                "read_time": pl.Float32, "session_id": pl.Utf8},
+    )
+
+
+def test_explode_candidates_numbers_positions_in_list_order():
+    """Position is the platform's own ordering of the slate, so nothing upstream may sort or
+    dedupe `candidates` -- the numbering here is only meaningful if that order survives."""
+    imp = _impressions([("i1", "u", T0, ["c", "a", "b"], ["a"], 5.0, "s1")])
+    out = explode_candidates(imp)
+    assert out["article_id"].to_list() == ["c", "a", "b"]
+    assert out["pos_in_slate"].to_list() == [0.0, 1.0, 2.0]
+    assert out["slate_size"].to_list() == [3.0] * 3
+    assert out["pos_relative"].to_list() == pytest.approx([0.0, 1 / 3, 2 / 3])
+
+
+def test_explode_candidates_keeps_requested_columns():
+    imp = _impressions([("i1", "u", T0, ["a", "b"], ["b"], 5.0, "s1")])
+    out = explode_candidates(imp, keep=("clicked",))
+    assert out["clicked"].to_list() == [["b"], ["b"]]
+
+
+def test_session_counters_exclude_the_current_impression():
+    """`session_length` would count impressions that have not happened yet when this one is
+    ranked -- leakage dressed as context. Every counter must be strictly-previous."""
+    imp = _impressions([
+        ("i1", "u", T0, ["a"], ["a"], 10.0, "s1"),
+        ("i2", "u", T0 + timedelta(minutes=1), ["b"], ["b"], 20.0, "s1"),
+        ("i3", "u", T0 + timedelta(minutes=2), ["c"], [], 30.0, "s1"),
+    ])
+    sf = session_features(imp).sort("impression_id")
+    assert sf["impressions_so_far_in_session"].to_list() == [0.0, 1.0, 2.0]
+    assert sf["clicks_so_far_in_session"].to_list() == [0.0, 1.0, 2.0]
+    assert sf["is_session_start"].to_list() == [1.0, 0.0, 0.0]
+    assert sf["secs_since_session_start"].to_list() == [0.0, 60.0, 120.0]
+
+
+def test_session_dwell_excludes_the_current_impressions_own_read_time():
+    """read_time on the current row is post-click (schema.LEAKY_IMPRESSION_COLS); read_time on
+    *earlier* impressions of the same session already happened and is serving-safe."""
+    imp = _impressions([
+        ("i1", "u", T0, ["a"], ["a"], 10.0, "s1"),
+        ("i2", "u", T0 + timedelta(minutes=1), ["b"], ["b"], 90.0, "s1"),
+    ])
+    sf = session_features(imp).sort("impression_id")
+    assert sf["session_dwell_so_far"].to_list() == pytest.approx([0.0, 10.0])
+
+
+def test_new_session_id_resets_the_counters():
+    imp = _impressions([
+        ("i1", "u", T0, ["a"], [], 1.0, "s1"),
+        ("i2", "u", T0 + timedelta(minutes=1), ["b"], [], 1.0, "s2"),
+    ])
+    sf = session_features(imp).sort("impression_id")
+    assert sf["is_session_start"].to_list() == [1.0, 1.0]
+
+
+def test_sessions_are_derived_from_time_gaps_when_session_id_is_missing():
+    """The MIND path. MIND averages 3.03 impressions per user, so most derived sessions are
+    singletons and these features carry little there -- a finding to report, not to special-case."""
+    imp = _impressions([
+        ("i1", "u", T0, ["a"], [], 0.0, None),
+        ("i2", "u", T0 + timedelta(minutes=5), ["b"], [], 0.0, None),
+        ("i3", "u", T0 + timedelta(hours=3), ["c"], [], 0.0, None),
+    ])
+    sf = session_features(imp, gap_minutes=30.0).sort("impression_id")
+    assert sf["is_session_start"].to_list() == [1.0, 0.0, 1.0]
+    assert sf["impressions_so_far_in_session"].to_list() == [0.0, 1.0, 0.0]
+
+
+def test_sessions_do_not_run_across_users():
+    imp = _impressions([
+        ("i1", "u1", T0, ["a"], [], 0.0, None),
+        ("i2", "u2", T0 + timedelta(minutes=1), ["b"], [], 0.0, None),
+    ])
+    sf = session_features(imp).sort("impression_id")
+    assert sf["is_session_start"].to_list() == [1.0, 1.0]
+
+
+def test_session_features_return_one_row_per_impression():
+    imp = _impressions([("i1", "u", T0, ["a", "b"], [], 0.0, "s1"),
+                        ("i2", "u", T0 + timedelta(minutes=1), ["c"], [], 0.0, "s1")])
+    assert session_features(imp).height == imp.height
+
+
+def test_click_derived_session_feature_is_excluded_from_the_submission_safe_set():
+    assert "clicks_so_far_in_session" in SESSION_FEATURE_NAMES
+    assert "clicks_so_far_in_session" not in SUBMISSION_SAFE_SESSION_FEATURES
+    # session_id and read_time are both present in EB-NeRD's test file, so the rest survive
+    assert "session_dwell_so_far" in SUBMISSION_SAFE_SESSION_FEATURES
+    assert set(SUBMISSION_SAFE_SESSION_FEATURES).issubset(SESSION_FEATURE_NAMES)
