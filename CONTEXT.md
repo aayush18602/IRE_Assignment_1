@@ -30,9 +30,9 @@ name against it, if a `TBD` item is marked `done` without first being assigned, 
 | ID | Item | Owner | Status | Done by / when |
 |---|---|---|---|---|
 | Q1-A | Widen schema and `clean.py` for behavioural columns | Aayush | done | Aayush, 2026-09-11 |
-| Q1-B | Click-history features + exponential recency decay | Aayush | todo | — |
+| Q1-B | Click-history features, exponential recency decay, category match | Aayush | todo | — |
 | Q1-C | Session context, dwell, position bias | Aayush | todo | — |
-| Q1-D | Article features: trailing-window popularity, freshness, category match | Aayush | todo | — |
+| Q1-D | Article features: trailing-window popularity, CTR, freshness | Aayush | done | Aayush, 2026-09-11 |
 | Q1-E | Behaviour-window boundary enforcement + leakage tests | Aayush | todo | — |
 | Q2-A1 | Feature matrix builder and impression grouping — **shared substrate** | Aayush | todo | — |
 | Q2-A2 | Option A: LightGBM LambdaRank training, scoring, CLI | Aayush | todo | — |
@@ -82,6 +82,42 @@ The most important section. If it is empty, nobody is stuck.
 ## Decisions taken
 
 Append-only. One entry per decision that someone else would otherwise re-litigate.
+
+### 2026-09-11 — Popularity is indexed over ALL impressions, not train-only
+
+The instinctive "safe" choice — index only the train split — is **structurally broken for trailing
+windows** and fails silently. The window is relative to each impression's own timestamp, and our
+temporal split leaves a 2-day gap between the end of train and the start of test, so a 24h window
+at test time reaches back into empty space. Measured on the real EB-NeRD test split, every
+popularity feature scored exactly **AUC 0.5000** that way.
+
+Indexing all impressions and relying on the as-of cutoff instead:
+
+| feature | train-only | all splits, as-of filtered |
+|---|---|---|
+| `ctr_1h` (EB-NeRD) | 0.5000 | **0.7139** |
+| `ctr_24h` (MIND) | 0.5033 | **0.7141** |
+| `pop_clicks_1h` (EB-NeRD) | 0.5000 | **0.6861** |
+
+This is safe *because* the cutoff is strict, not despite it — a click that has already happened is
+knowable at serving time regardless of which evaluation split it belongs to. Verified it is not
+boundary leakage by shifting `as_of` backwards: AUC decays smoothly (0.7139 → 0.7138 at 1s → 0.638
+at 1h → 0.502 at 6h) with no cliff, which a bug counting the impression's own click would produce.
+For context, A1's entire BM25 pipeline scored AUC 0.497 / 0.545 — one feature here beats it.
+
+### 2026-09-11 — Click-derived features are unavailable at submission time
+
+Both Codabench test sets ship candidates but **no click labels** — EB-NeRD's test
+`behaviors.parquet` has no `article_ids_clicked` column at all, MIND's impressions field is bare
+ids. So `pop_clicks_*` and `ctr_*` cannot be computed over the test period at submission time;
+`pop_inviews_*` and freshness can.
+
+`ArticleFeatures.submission_safe_feature_names` names the surviving subset so this is mechanical
+rather than a comment someone has to remember. **Q2 must not train a model that silently depends
+on inputs the submission cannot supply** — either train a submission-safe variant, or report the
+gap. This is Q9's "with and without features unavailable at serving time" arising from a real
+constraint rather than a synthetic one, and worth saying precisely: the limitation is a property of
+the released files, not of serving — a deployed system sees clicks as they happen.
 
 ### 2026-09-10 — The re-ranker ranks the impression's shown slate, not a full-catalog top-K
 
@@ -143,6 +179,16 @@ Append-only. Things that cost someone time — write them down so they cost only
   `schema.LEAKY_IMPRESSION_COLS` names the whole group.
 - **`total_inviews` / `total_pageviews` are only 48.1% non-null** on EB-NeRD articles, on top of
   being leaky. Q9 material only.
+- **News popularity has a ~1h half-life.** Shifting the observation point back from an impression:
+  `ctr_1h` AUC 0.714 at lag 0, 0.638 at 1h, 0.502 at 6h, 0.467 at 24h. Trailing windows must be
+  hours, not days — and EB-NeRD's train split spans only 10 days, MIND's 6, so a 7d window is
+  nearly the whole split anyway.
+- **`freshness_hours` AUC is ~0.395, i.e. inverted, and that is correct.** Higher value = older
+  article = less likely clicked. A GBDT does not care about direction; do not "fix" it by flipping
+  the sign.
+- **Category match moved from `Q1-D` to `Q1-B`.** It needs the as-of-filtered, decay-weighted
+  history, and duplicating that boundary logic in the item-side module is exactly where a leak
+  would be hardest to spot.
 - **Rebuilding the feature store is cheap** — `python scripts/build_pipeline.py` on the small
   tiers takes ~8s, and the temporal splits are deterministic (verified byte-identical
   impression-id hashes across a rebuild), so re-running it never invalidates A1's results.
@@ -152,6 +198,19 @@ Append-only. Things that cost someone time — write them down so they cost only
 ## Session log — Aayush
 
 Newest entry at the top. Only Aayush edits this section.
+
+### 2026-09-11 — Q1-D: item-side features
+
+**Item(s):** `Q1-D` — done. Taken before `Q1-B`, reversing the plan's order.
+**Did:** New `src/ire_a1/article_features.py`: trailing-window click/in-view counts, smoothed CTR,
+freshness. Boundary lives inside the lookup (`np.searchsorted(..., side="left")`), so an event at
+exactly `as_of` is excluded and there is no argument-less variant to call by accident. Counting is
+vectorised per *article* rather than per row, so numpy call count tracks catalogue size (20-65K)
+rather than row count (5-9M). 13 tests in `tests/test_article_features.py` (68 total, was 54).
+**State:** Works and measured. Throughput 2.2-2.6M rows/s, so the 162M-row large tier is ~65s.
+**Next:** `Q1-B` — history features, now also carrying category match (moved out of Q1-D, see below).
+**For Anurag:** two findings below change what your Q2-B model can rely on — worth reading before
+you design the input layer.
 
 ### 2026-09-11 — Q1-A: widened the schema
 

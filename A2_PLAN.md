@@ -293,9 +293,9 @@ That contract is the whole interface. Once it is fixed, Q2-A2 and Q2-B1 proceed 
 | ID | Item | Files | Size | Owner | Needs | Kind |
 |---|---|---|---|---|---|---|
 | Q1-A | Widen schema and `clean.py` for behavioural columns | `src/ire_a1/schema.py`, `src/ire_a1/clean.py` | M | **Aayush** | — | modify |
-| Q1-B | Click-history features + exponential recency decay | `src/ire_a1/behaviour.py` | L | **Aayush** | Q1-A | new |
+| Q1-B | Click-history features, exponential recency decay, category match | `src/ire_a1/behaviour.py` | L | **Aayush** | Q1-A | new |
 | Q1-C | Session context, dwell, position bias | `src/ire_a1/behaviour.py` | M | **Aayush** | Q1-A | new |
-| Q1-D | Article features: trailing-window popularity, freshness, category match | `src/ire_a1/article_features.py` | L | **Aayush** | Q1-A | new |
+| Q1-D | Article features: trailing-window popularity, CTR, freshness | `src/ire_a1/article_features.py` | L | **Aayush** | Q1-A | new |
 | Q1-E | Behaviour-window boundary enforcement + leakage tests | `tests/test_no_leakage.py`, `tests/test_behaviour.py` | M | **Aayush** | Q1-B, Q1-C, Q1-D | modify |
 | Q2-A1 | Feature matrix builder and impression grouping — **shared substrate** | `src/ire_a1/reranker.py` | L | **Aayush** | Q1-E | new |
 | Q2-A2 | Option A: LightGBM LambdaRank training, scoring, CLI | `src/ire_a1/reranker.py`, `scripts/run_reranker.py` | L | **Aayush** | Q2-A1 | new |
