@@ -30,7 +30,7 @@ name against it, if a `TBD` item is marked `done` without first being assigned, 
 | ID | Item | Owner | Status | Done by / when |
 |---|---|---|---|---|
 | Q1-A | Widen schema and `clean.py` for behavioural columns | Aayush | done | Aayush, 2026-09-11 |
-| Q1-B | Click-history features, exponential recency decay, category match | Aayush | todo | — |
+| Q1-B | Click-history features, exponential recency decay, category match | Aayush | done | Aayush, 2026-09-11 |
 | Q1-C | Session context, dwell, position bias | Aayush | todo | — |
 | Q1-D | Article features: trailing-window popularity, CTR, freshness | Aayush | done | Aayush, 2026-09-11 |
 | Q1-E | Behaviour-window boundary enforcement + leakage tests | Aayush | todo | — |
@@ -82,6 +82,29 @@ The most important section. If it is empty, nobody is stuck.
 ## Decisions taken
 
 Append-only. One entry per decision that someone else would otherwise re-litigate.
+
+### 2026-09-11 — Recency decay on the click history is close to inert
+
+Swept the half-life against test-split AUC for `cat_affinity`, and the principled-sounding choice
+is not the one that wins:
+
+| EB-NeRD half-life | 6h | 24h | 72h | **168h** | 336h | 720h | undecayed |
+|---|---|---|---|---|---|---|---|
+| AUC | 0.5578 | 0.5667 | 0.5699 | **0.5702** | 0.5699 | 0.5696 | 0.5693 |
+
+The peak beats no decay at all by **+0.0009**. On MIND it is worse — decay *monotonically hurts*
+(3 clicks 0.6000 → 100 clicks 0.6079, undecayed 0.6080), converging on the undecayed value from
+below. Defaults are set to the measured best (168h / 50 positions) and both the decayed and
+undecayed affinities ship as features so the GBDT can pick.
+
+Likely why: EB-NeRD's history is a 4-week snapshot ending 5+ days before the test window, so
+everything in it is "old" and relative recency inside a stale snapshot says little about what the
+user wants now. MIND has no timestamps at all, and position is a weak proxy.
+
+**For Anurag, on `Q3-C`:** this is a caution, not a veto. Your recency-weighted attention operates
+on history *embeddings* inside a learned model, which is a different mechanism from reweighting a
+category histogram — it may well behave differently. But if the ablation comes out flat, this is
+the reason, and it is worth predicting in the design note rather than explaining afterwards.
 
 ### 2026-09-11 — Popularity is indexed over ALL impressions, not train-only
 
@@ -179,6 +202,20 @@ Append-only. Things that cost someone time — write them down so they cost only
   `schema.LEAKY_IMPRESSION_COLS` names the whole group.
 - **`total_inviews` / `total_pageviews` are only 48.1% non-null** on EB-NeRD articles, on top of
   being leaky. Q9 material only.
+- **EB-NeRD's fixed history snapshot causes a real train/test skew.** The snapshot ends
+  2023-05-25 while impressions run to 06-01, so history gets staler as the impression date
+  advances. Measured means: `hours_since_last_click` 12.6 (train) → 113.9 (val) → 159.8 (test),
+  and an as-of-relative `hist_clicks_24h` read 17.0 → 0.0 → 0.0, i.e. dead everywhere it mattered.
+  A feature alive in train and dead in test is *worse* than a useless one — the model learns to
+  lean on it. Fixed by anchoring the trailing counts to the user's own last click
+  (`hist_burst_*`): now 19.7 / 19.6 / 20.3. `hours_since_last_click` is kept but named in
+  `HistoryFeatures.split_unstable_feature_names` so Q2 can exclude it by name.
+- **Dwell beats recency as a history weight.** On EB-NeRD `dwell_affinity` (0.5720) is the
+  strongest user-side feature, above both decayed (0.5702) and raw (0.5693) category affinity.
+  MIND has no dwell instrumentation, so it has no equivalent.
+- **Item-side features dominate user-side ones.** Best from `Q1-D` is `ctr_1h` at ~0.71; best from
+  `Q1-B` is ~0.57. What is popular right now predicts clicks far better than who the user is —
+  worth stating plainly in the design note rather than letting the tables imply it.
 - **News popularity has a ~1h half-life.** Shifting the observation point back from an impression:
   `ctr_1h` AUC 0.714 at lag 0, 0.638 at 1h, 0.502 at 6h, 0.467 at 24h. Trailing windows must be
   hours, not days — and EB-NeRD's train split spans only 10 days, MIND's 6, so a 7d window is
@@ -198,6 +235,19 @@ Append-only. Things that cost someone time — write them down so they cost only
 ## Session log — Aayush
 
 Newest entry at the top. Only Aayush edits this section.
+
+### 2026-09-11 — Q1-B: user-side history features
+
+**Item(s):** `Q1-B` — done.
+**Did:** New `src/ire_a1/behaviour.py`. Two decay clocks: EB-NeRD decays in elapsed time
+(per-(user, as_of) state, chunked explode), MIND in position from the end (per-user state, since
+weights are as-of independent there). Category affinity in decayed / raw / dwell-weighted variants,
+history counts, `hours_since_last_click`. 14 tests (82 total, was 68).
+**State:** Works. EB-NeRD 0.47M rows/s, MIND 16.4M rows/s — the gap is the per-impression explode
+EB-NeRD needs and MIND doesn't. ~5.7 min for the 162M-row large tier; fine, but it is the slowest
+feature stage so far and worth remembering for Q4.
+**Next:** `Q1-C` — session context, dwell, position bias.
+**For Anurag:** the recency-decay result below is worth reading before you build `Q3-C`.
 
 ### 2026-09-11 — Q1-D: item-side features
 
