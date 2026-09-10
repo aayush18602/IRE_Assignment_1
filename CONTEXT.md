@@ -29,7 +29,7 @@ name against it, if a `TBD` item is marked `done` without first being assigned, 
 
 | ID | Item | Owner | Status | Done by / when |
 |---|---|---|---|---|
-| Q1-A | Widen schema and `clean.py` for behavioural columns | Aayush | todo | — |
+| Q1-A | Widen schema and `clean.py` for behavioural columns | Aayush | done | Aayush, 2026-09-11 |
 | Q1-B | Click-history features + exponential recency decay | Aayush | todo | — |
 | Q1-C | Session context, dwell, position bias | Aayush | todo | — |
 | Q1-D | Article features: trailing-window popularity, freshness, category match | Aayush | todo | — |
@@ -69,7 +69,9 @@ tracked here — both of you do them together at the end.
 
 The most important section. If it is empty, nobody is stuck.
 
-- **Anurag is waiting on `Q1-A`** (schema widening, Aayush) before `Q3-A` can start.
+- ~~Anurag waiting on `Q1-A`~~ — **done and pushed. `Q3-A` (NRMS encoders) is unblocked.** Pull
+  `a2` and re-run `python scripts/build_pipeline.py` to regenerate your local
+  `data/processed/` with the widened columns.
 - **Anurag is waiting on `Q2-A1`** (feature matrix, Aayush) before `Q2-B1` can start. **Agree the
   `build_matrix` output contract before Q2-A1 is written** — it is the only cross-person interface
   in the plan, and the shape is specified in `A2_PLAN.md`.
@@ -129,12 +131,46 @@ Append-only. Things that cost someone time — write them down so they cost only
 - **`data/` is git-ignored and ~9 GB.** The shared working set is only 91 MB — see the tier-1
   tarball in `A2_PLAN.md`. Do not try to sync `data/` through git.
 - **Local machine has no GPU.** Anything torch-heavy goes to Kaggle.
+- **EB-NeRD demographics are nearly all null** — measured on the test split after `Q1-A`:
+  `age` 2.5%, `gender` 6.8%, `postcode` 1.9% non-null. Only `is_subscriber` is 100%. So the
+  "demographics" feature group is effectively one boolean; do not budget real work for the rest.
+- **The safe dwell column is sparse, the leaky one is dense.** `scroll_percentage` is 28.9%
+  non-null; `next_scroll_percentage` (which describes the *next* article read, pure future
+  information) is 89.1%. A tidy illustration for the Q9 write-up of why leakage is tempting.
+- **`read_time` on the impression row is 100% non-null and must not be used as a feature.** It is
+  the dwell on the article clicked *in that impression* — measured after the click, unknowable at
+  ranking time. The serving-safe dwell signal is `history_read_times` (dwell on past clicks).
+  `schema.LEAKY_IMPRESSION_COLS` names the whole group.
+- **`total_inviews` / `total_pageviews` are only 48.1% non-null** on EB-NeRD articles, on top of
+  being leaky. Q9 material only.
+- **Rebuilding the feature store is cheap** — `python scripts/build_pipeline.py` on the small
+  tiers takes ~8s, and the temporal splits are deterministic (verified byte-identical
+  impression-id hashes across a rebuild), so re-running it never invalidates A1's results.
 
 ---
 
 ## Session log — Aayush
 
 Newest entry at the top. Only Aayush edits this section.
+
+### 2026-09-11 — Q1-A: widened the schema
+
+**Item(s):** `Q1-A` — done.
+**Did:** Added the behavioural columns A1's cleaning was discarding. `IMPRESSION_COLS` 7 → 16
+(`session_id`, demographics, and the four post-click dwell columns), `HISTORY_COLS` 6 → 8
+(`history_read_times`, `history_scroll_percentages`), `ARTICLE_COLS` 11 → 14 (the lifetime
+counters). Added `schema.LEAKY_IMPRESSION_COLS` / `LEAKY_ARTICLE_COLS` so Q9's serving-unavailable
+columns are named in one place and the Q1 feature builders can assert against them. Three new tests
+in `test_clean.py` (54 passing, was 51). Rebuilt `data/processed/` for both datasets.
+**State:** Works. Splits verified byte-identical to before the change — same impression counts,
+same id hashes, same time boundaries — so every A1 result still reproduces.
+**Next:** `Q1-D` (trailing-window popularity) before `Q1-B`, reversing the plan's order — the
+popularity index is the piece with real design risk and `Q1-C`/`Q1-E` both lean on it, whereas the
+history features are more mechanical.
+**For Anurag:** `Q3-A` is unblocked. Pull `a2` and re-run `python scripts/build_pipeline.py`
+(~8s) before you start, or your local parquets will be missing the new columns. Note
+`data/processed_large/` is still on the old schema — it only matters for submission generation, so
+it can wait.
 
 ### 2026-09-10 — Planning
 

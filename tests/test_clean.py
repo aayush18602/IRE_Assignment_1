@@ -5,7 +5,13 @@ import pytest
 
 from ire_a1.clean import clean_ebnerd, clean_mind
 from ire_a1.feature_store import history_asof, recent_history_asof
-from ire_a1.schema import ARTICLE_COLS, HISTORY_COLS, IMPRESSION_COLS
+from ire_a1.schema import (
+    ARTICLE_COLS,
+    HISTORY_COLS,
+    IMPRESSION_COLS,
+    LEAKY_ARTICLE_COLS,
+    LEAKY_IMPRESSION_COLS,
+)
 
 EBNERD_DEMO = Path("data/ebnerd_demo")
 MIND_TRAIN = Path("data/MINDsmall_train/MINDsmall_train")
@@ -54,6 +60,51 @@ def test_clean_mind_schema_and_labels():
     row = tables["history"].row(0, named=True)
     assert row["history_length"] == len(row["history_article_ids"])
     assert row["last_history_time"] is None
+
+
+@skip_if_no_ebnerd
+def test_ebnerd_behavioural_columns_are_populated():
+    """A2 Q1: the behavioural columns exist in EB-NeRD's raw logs but were dropped by A1's
+    cleaning. Assert they now survive it -- a silently all-null column would look like a working
+    feature to LightGBM while carrying no signal at all."""
+    tables = clean_ebnerd(EBNERD_DEMO)
+    impressions, history = tables["impressions"], tables["history"]
+
+    assert impressions["session_id"].null_count() == 0
+    assert impressions["is_subscriber"].null_count() == 0
+    assert impressions["read_time"].null_count() < impressions.height
+
+    # position-aligned with history_article_ids, or the per-item dwell weighting is meaningless
+    row = history.row(0, named=True)
+    assert len(row["history_read_times"]) == len(row["history_article_ids"])
+    assert len(row["history_scroll_percentages"]) == len(row["history_article_ids"])
+
+
+@skip_if_no_mind
+def test_mind_behavioural_columns_are_null_not_absent():
+    """MIND ships none of the behavioural instrumentation. The columns must still exist with the
+    right dtype and be null throughout -- behaviour.py branches on null to select MIND's
+    fallbacks (pseudo-sessions from timestamp gaps, positional decay instead of time decay), so
+    an absent column and a null one are not interchangeable."""
+    tables = clean_mind(MIND_TRAIN, MIND_DEV)
+    impressions, history = tables["impressions"], tables["history"]
+
+    for col in ("session_id", "age", "gender", "postcode", "is_subscriber"):
+        assert impressions[col].null_count() == impressions.height, f"{col} unexpectedly populated"
+    for col in LEAKY_IMPRESSION_COLS:
+        assert impressions[col].null_count() == impressions.height
+    for col in ("history_read_times", "history_scroll_percentages"):
+        assert history[col].null_count() == history.height
+    for col in LEAKY_ARTICLE_COLS:
+        assert tables["articles"][col].null_count() == tables["articles"].height
+
+
+def test_leaky_columns_are_declared_and_disjoint_from_features():
+    """Q9's leaky columns are carried on purpose, so the guard against using them has to be
+    explicit: they must be real columns of the schema, and the two lists must not overlap."""
+    assert set(LEAKY_IMPRESSION_COLS).issubset(IMPRESSION_COLS)
+    assert set(LEAKY_ARTICLE_COLS).issubset(ARTICLE_COLS)
+    assert not set(LEAKY_IMPRESSION_COLS) & set(LEAKY_ARTICLE_COLS)
 
 
 def test_history_asof_filters_future_entries():

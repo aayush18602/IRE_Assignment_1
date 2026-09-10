@@ -1,4 +1,4 @@
-"""Q1 step 2: parse EB-NeRD and MIND raw files into the unified schema (schema.py).
+"""A1 Q1 step 2: parse EB-NeRD and MIND raw files into the unified schema (schema.py).
 
 Both `clean_ebnerd` and `clean_mind` return {"articles": DataFrame, "impressions": DataFrame,
 "history": DataFrame}, with identical columns (schema.ARTICLE_COLS / IMPRESSION_COLS /
@@ -40,6 +40,9 @@ def clean_ebnerd(raw_dir: Path) -> dict[str, pl.DataFrame]:
         sentiment_score=pl.col("sentiment_score"),
         sentiment_label=pl.col("sentiment_label"),
         embedding=pl.lit(None).cast(pl.List(pl.Float32)),
+        total_inviews=pl.col("total_inviews").cast(pl.Int32),
+        total_pageviews=pl.col("total_pageviews").cast(pl.Int32),
+        total_read_time=pl.col("total_read_time").cast(pl.Float32),
     ).select(ARTICLE_COLS)
 
     behaviors = pl.concat([
@@ -54,6 +57,17 @@ def clean_ebnerd(raw_dir: Path) -> dict[str, pl.DataFrame]:
         candidates=pl.col("article_ids_inview").cast(pl.List(pl.Utf8)),
         clicked=pl.col("article_ids_clicked").cast(pl.List(pl.Utf8)),
         device_type=pl.col("device_type").cast(pl.Utf8),
+        # session_id is globally unique in EB-NeRD (verified: n_unique matches the
+        # (user_id, session_id) group count), so it needs no per-user namespacing
+        session_id=pl.col("session_id").cast(pl.Utf8),
+        age=pl.col("age").cast(pl.Int8),
+        gender=pl.col("gender").cast(pl.Int8),
+        postcode=pl.col("postcode").cast(pl.Int8),
+        is_subscriber=pl.col("is_subscriber").cast(pl.Boolean),
+        read_time=pl.col("read_time").cast(pl.Float32),
+        scroll_percentage=pl.col("scroll_percentage").cast(pl.Float32),
+        next_read_time=pl.col("next_read_time").cast(pl.Float32),
+        next_scroll_percentage=pl.col("next_scroll_percentage").cast(pl.Float32),
     ).select(IMPRESSION_COLS)
 
     history_raw = pl.concat([
@@ -67,6 +81,8 @@ def clean_ebnerd(raw_dir: Path) -> dict[str, pl.DataFrame]:
         history_timestamps=pl.col("impression_time_fixed"),
         history_length=pl.col("article_id_fixed").list.len(),
         last_history_time=pl.col("impression_time_fixed").list.max(),
+        history_read_times=pl.col("read_time_fixed"),
+        history_scroll_percentages=pl.col("scroll_percentage_fixed"),
     ).select(HISTORY_COLS)
 
     return {"articles": articles, "impressions": impressions, "history": history}
@@ -144,6 +160,11 @@ def clean_mind(train_dir: Path, dev_dir: Path) -> dict[str, pl.DataFrame]:
         sentiment_score=pl.lit(None).cast(pl.Float32),
         sentiment_label=pl.lit(None).cast(pl.Utf8),
         embedding=pl.lit(None).cast(pl.List(pl.Float32)),
+        # MIND ships no engagement counters at all -- null rather than 0, so "unknown" never
+        # masquerades as "never viewed"
+        total_inviews=pl.lit(None).cast(pl.Int32),
+        total_pageviews=pl.lit(None).cast(pl.Int32),
+        total_read_time=pl.lit(None).cast(pl.Float32),
     ).select(ARTICLE_COLS)
 
     behaviors = pl.concat([_read_mind_behaviors(train_dir), _read_mind_behaviors(dev_dir)])
@@ -163,6 +184,18 @@ def clean_mind(train_dir: Path, dev_dir: Path) -> dict[str, pl.DataFrame]:
         candidates=candidates_col,
         clicked=clicked_col,
         device_type=pl.lit(None).cast(pl.Utf8),
+        # MIND has no session id, no demographics and no dwell instrumentation. Nulls here are
+        # load-bearing: behaviour.py branches on them to pick MIND's fallbacks (pseudo-sessions
+        # from timestamp gaps, positional decay instead of time decay).
+        session_id=pl.lit(None).cast(pl.Utf8),
+        age=pl.lit(None).cast(pl.Int8),
+        gender=pl.lit(None).cast(pl.Int8),
+        postcode=pl.lit(None).cast(pl.Int8),
+        is_subscriber=pl.lit(None).cast(pl.Boolean),
+        read_time=pl.lit(None).cast(pl.Float32),
+        scroll_percentage=pl.lit(None).cast(pl.Float32),
+        next_read_time=pl.lit(None).cast(pl.Float32),
+        next_scroll_percentage=pl.lit(None).cast(pl.Float32),
     ).select(IMPRESSION_COLS)
 
     # MIND's `history` is a fixed pre-collection-period snapshot, constant across all of a
@@ -179,6 +212,8 @@ def clean_mind(train_dir: Path, dev_dir: Path) -> dict[str, pl.DataFrame]:
         history_timestamps=pl.lit(None).cast(pl.List(pl.Datetime)),
         history_length=pl.Series("history_length", [len(h) for h in history_lists], dtype=pl.Int64),
         last_history_time=pl.lit(None).cast(pl.Datetime),
+        history_read_times=pl.lit(None).cast(pl.List(pl.Float32)),
+        history_scroll_percentages=pl.lit(None).cast(pl.List(pl.Float32)),
     ).select(HISTORY_COLS)
 
     return {"articles": articles, "impressions": impressions, "history": history}
