@@ -33,7 +33,7 @@ name against it, if a `TBD` item is marked `done` without first being assigned, 
 | Q1-B | Click-history features, exponential recency decay, category match | Aayush | done | Aayush, 2026-09-11 |
 | Q1-C | Session context, dwell, position bias | Aayush | done | Aayush, 2026-09-11 |
 | Q1-D | Article features: trailing-window popularity, CTR, freshness | Aayush | done | Aayush, 2026-09-11 |
-| Q1-E | Behaviour-window boundary enforcement + leakage tests | Aayush | todo | — |
+| Q1-E | Behaviour-window boundary enforcement + leakage tests | Aayush | done | Aayush, 2026-09-11 |
 | Q2-A1 | Feature matrix builder and impression grouping — **shared substrate** | Aayush | todo | — |
 | Q2-A2 | Option A: LightGBM LambdaRank training, scoring, CLI | Aayush | todo | — |
 | Q2-B1 | Option B: neural ranker (MLP over the same feature matrix) | Anurag | todo | — |
@@ -82,6 +82,26 @@ The most important section. If it is empty, nobody is stuck.
 ## Decisions taken
 
 Append-only. One entry per decision that someone else would otherwise re-litigate.
+
+### 2026-09-11 — The two-index "future-blind" test found a real leak
+
+`hours_since_first_seen` was computed as `as_of − first_seen`, where `first_seen` is a min over the
+whole indexed period with no as-of filter. For an article whose first appearance falls *after* the
+impression being scored, that returns a **negative age** — which encodes "this article turns up in
+the future". Measured −5.0 on a synthetic case; the two indexes disagreed, which is the signature.
+
+It survived review because in practice a candidate in the current slate contributes its own
+in-view event, so `first_seen ≤ as_of` and the value is non-negative. **A correctness guarantee
+must not rest on that coincidence.** Fixed with a `ref < as_of` guard.
+
+Worth the method, not just the fix: spot-checking individual boundaries would never have found
+this, because nobody writes a test for the case they did not think of. Building the index twice
+and demanding identical output tests the *property* rather than an enumeration of cases.
+
+Both guards are mutation-tested — flipping `side="left"` to `side="right"`, and removing the
+`ref < as_of` guard, each make specific named tests fail. The first pass of that exercise also
+showed the synthetic fixture was too weak to catch the second mutation (only the real-data test
+did), so the fixture was strengthened until the fast test catches what the slow one does.
 
 ### 2026-09-11 — Measure features by PER-IMPRESSION AUC, never pooled
 
@@ -276,6 +296,22 @@ Append-only. Things that cost someone time — write them down so they cost only
 ## Session log — Aayush
 
 Newest entry at the top. Only Aayush edits this section.
+
+### 2026-09-11 — Q1-E: boundary enforcement, and a leak it found
+
+**Item(s):** `Q1-E` — done. **Q1 is complete** (`Q1-A` … `Q1-E`).
+**Did:** Extended `tests/test_no_leakage.py` from A1's split-level checks to the A2 feature
+builders. The load-bearing one is *future-blind*: build the same index twice — once over all
+impressions, once over only those strictly before a cutoff — and assert features at or before the
+cutoff come out identical. Any path by which future data reaches a feature makes the two disagree,
+whether or not anyone wrote a case for it. Synthetic and real-data variants of it, plus a proof by
+construction that nothing reads `schema.LEAKY_*_COLS` (drop the columns entirely; the builders
+still work). 13 tests in that file; 98 total, was 91.
+**State:** Works, and mutation-tested — see below.
+**Next:** Q1 is done. `Q2-A1` (feature matrix builder) is the next item and unblocks Anurag's
+`Q2-B1`.
+**For Anurag:** `Q2-A1` is mine and you are waiting on it. Worth agreeing the `build_matrix`
+output contract now rather than when I push it.
 
 ### 2026-09-11 — Q1-C: session context, dwell, slate position
 

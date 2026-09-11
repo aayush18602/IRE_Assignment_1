@@ -233,8 +233,18 @@ class ArticleFeatures:
             out[f"ctr_{h}h"] = clicks / (views + 1.0)
 
         def age_hours(reference: np.ndarray) -> np.ndarray:
+            """Age in hours, or NaN when the reference point is not strictly in the past.
+
+            The `ref < as_of` guard is the as-of boundary, not defensive padding. `first_seen` is
+            a min over the whole indexed period, so without it an article whose first appearance
+            falls *after* the impression being scored returns a negative age -- which encodes
+            "this article shows up in the future", exactly the future information the boundary
+            exists to exclude. It survives in practice only because a candidate in the current
+            slate contributes its own in-view event, and a correctness guarantee must not rest on
+            that coincidence. `test_no_leakage.py` pins it by building the index twice.
+            """
             ref = np.where(known, reference[np.clip(a_idx, 0, None)], np.iinfo(np.int64).min)
-            valid = known & (ref != np.iinfo(np.int64).min)
+            valid = known & (ref != np.iinfo(np.int64).min) & (ref < as_of)
             age = np.full(len(a_idx), np.nan, dtype=np.float32)
             age[valid] = (as_of[valid] - ref[valid]) / US_PER_HOUR
             return age
