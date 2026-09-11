@@ -1,0 +1,228 @@
+{
+  "dataset": "mind",
+  "split": "test",
+  "n_impressions": 34519,
+  "n_rows": 1326323,
+  "n_features": 24,
+  "positive_rate": 0.03938784142324306,
+  "build_seconds": 8.07,
+  "transform_seconds": 15.43,
+  "features": [
+    {
+      "feature": "ctr_24h",
+      "per_impression_auc": 0.6338939807145523,
+      "pooled_auc": 0.7141431065664774,
+      "constant_frac": 0.0,
+      "nan_frac": 0.0,
+      "submission_safe": false,
+      "split_unstable": false
+    },
+    {
+      "feature": "ctr_1h",
+      "per_impression_auc": 0.6328337745738057,
+      "pooled_auc": 0.7106761685214522,
+      "constant_frac": 0.0001738173179988145,
+      "nan_frac": 0.0,
+      "submission_safe": false,
+      "split_unstable": false
+    },
+    {
+      "feature": "embed_cos",
+      "per_impression_auc": 0.6168153415338065,
+      "pooled_auc": 0.6107304471457151,
+      "constant_frac": 0.030475969755786703,
+      "nan_frac": 0.0,
+      "submission_safe": true,
+      "split_unstable": false
+    },
+    {
+      "feature": "cat_affinity_raw",
+      "per_impression_auc": 0.5968359306965786,
+      "pooled_auc": 0.6080448705726624,
+      "constant_frac": 0.05292737333062947,
+      "nan_frac": 0.0,
+      "submission_safe": true,
+      "split_unstable": false
+    },
+    {
+      "feature": "cat_affinity",
+      "per_impression_auc": 0.5967481824457164,
+      "pooled_auc": 0.6077273566435748,
+      "constant_frac": 0.04916133144065582,
+      "nan_frac": 0.0,
+      "submission_safe": true,
+      "split_unstable": false
+    },
+    {
+      "feature": "pop_clicks_1h",
+      "per_impression_auc": 0.5749006391524856,
+      "pooled_auc": 0.663523822523522,
+      "constant_frac": 0.000347634635997518,
+      "nan_frac": 0.0,
+      "submission_safe": false,
+      "split_unstable": false
+    },
+    {
+      "feature": "pop_clicks_24h",
+      "per_impression_auc": 0.5459517017888228,
+      "pooled_auc": 0.6257217894708865,
+      "constant_frac": 0.00014484776499901209,
+      "nan_frac": 0.0,
+      "submission_safe": false,
+      "split_unstable": false
+    },
+    {
+      "feature": "bm25_score",
+      "per_impression_auc": 0.5449189780391811,
+      "pooled_auc": 0.5491600151792433,
+      "constant_frac": 0.031084330368782442,
+      "nan_frac": 0.0,
+      "submission_safe": true,
+      "split_unstable": false
+    },
+    {
+      "feature": "hours_since_first_seen",
+      "per_impression_auc": 0.4708478948123895,
+      "pooled_auc": 0.411657633703372,
+      "constant_frac": 0.00014495694778648982,
+      "nan_frac": 0.0008301145346947916,
+      "submission_safe": true,
+      "split_unstable": false
+    },
+    {
+      "feature": "pop_inviews_24h",
+      "per_impression_auc": 0.48568704050890316,
+      "pooled_auc": 0.5289971715665915,
+      "constant_frac": 0.0,
+      "nan_frac": 0.0,
+      "submission_safe": true,
+      "split_unstable": false
+    },
+    {
+      "feature": "pop_inviews_1h",
+      "per_impression_auc": 0.4895588083176327,
+      "pooled_auc": 0.5978349862792273,
+      "constant_frac": 8.690865899940725e-05,
+      "nan_frac": 0.0,
+      "submission_safe": true,
+      "split_unstable": false
+    },
+    {
+      "feature": "pos_relative",
+      "per_impression_auc": 0.4990293640925482,
+      "pooled_auc": 0.4792002132977031,
+      "constant_frac": 0.0,
+      "nan_frac": 0.0,
+      "submission_safe": true,
+      "split_unstable": false
+    },
+    {
+      "feature": "pos_in_slate",
+      "per_impression_auc": 0.49902936409254833,
+      "pooled_auc": 0.35596626004671456,
+      "constant_frac": 0.0,
+      "nan_frac": 0.0,
+      "submission_safe": true,
+      "split_unstable": false
+    },
+    {
+      "feature": "slate_size",
+      "per_impression_auc": 0.5,
+      "pooled_auc": 0.3131266296482205,
+      "constant_frac": 1.0,
+      "nan_frac": 0.0,
+      "submission_safe": true,
+      "split_unstable": false
+    },
+    {
+      "feature": "hist_len",
+      "per_impression_auc": 0.5,
+      "pooled_auc": 0.5175008680176862,
+      "constant_frac": 1.0,
+      "nan_frac": 0.0,
+      "submission_safe": true,
+      "split_unstable": false
+    },
+    {
+      "feature": "hist_len_asof",
+      "per_impression_auc": 0.5,
+      "pooled_auc": 0.5175008680176862,
+      "constant_frac": 1.0,
+      "nan_frac": 0.0,
+      "submission_safe": true,
+      "split_unstable": false
+    },
+    {
+      "feature": "decay_weight_sum",
+      "per_impression_auc": 0.5,
+      "pooled_auc": 0.5175008680176862,
+      "constant_frac": 1.0,
+      "nan_frac": 0.0,
+      "submission_safe": true,
+      "split_unstable": false
+    },
+    {
+      "feature": "freshness_hours",
+      "per_impression_auc": NaN,
+      "pooled_auc": NaN,
+      "constant_frac": NaN,
+      "nan_frac": 1.0,
+      "submission_safe": true,
+      "split_unstable": false
+    },
+    {
+      "feature": "has_published_time",
+      "per_impression_auc": 0.5,
+      "pooled_auc": 0.5,
+      "constant_frac": 1.0,
+      "nan_frac": 0.0,
+      "submission_safe": true,
+      "split_unstable": false
+    },
+    {
+      "feature": "impressions_so_far_in_session",
+      "per_impression_auc": 0.5,
+      "pooled_auc": 0.5020987791821951,
+      "constant_frac": 1.0,
+      "nan_frac": 0.0,
+      "submission_safe": true,
+      "split_unstable": false
+    },
+    {
+      "feature": "secs_since_session_start",
+      "per_impression_auc": 0.5,
+      "pooled_auc": 0.502142012926121,
+      "constant_frac": 1.0,
+      "nan_frac": 0.0,
+      "submission_safe": true,
+      "split_unstable": false
+    },
+    {
+      "feature": "is_session_start",
+      "per_impression_auc": 0.5,
+      "pooled_auc": 0.4979270517240973,
+      "constant_frac": 1.0,
+      "nan_frac": 0.0,
+      "submission_safe": true,
+      "split_unstable": false
+    },
+    {
+      "feature": "session_dwell_so_far",
+      "per_impression_auc": 0.5,
+      "pooled_auc": 0.5,
+      "constant_frac": 1.0,
+      "nan_frac": 0.0,
+      "submission_safe": true,
+      "split_unstable": false
+    },
+    {
+      "feature": "clicks_so_far_in_session",
+      "per_impression_auc": 0.5,
+      "pooled_auc": 0.5021178968435953,
+      "constant_frac": 1.0,
+      "nan_frac": 0.0,
+      "submission_safe": false,
+      "split_unstable": false
+    }
+  ]
+}

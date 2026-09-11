@@ -47,7 +47,7 @@ name against it, if a `TBD` item is marked `done` without first being assigned, 
 | Q4-A | Index memory and staged latency instrumentation | TBD | todo | — |
 | Q4-B | Serving benchmark CLI and cost/QPS arithmetic | TBD | todo | — |
 | Q5-A | Eval harness: `--method reranker` arm | TBD | todo | — |
-| Q5-B | Head/tail article slicing | TBD | todo | — |
+| Q5-B | Head/tail article slicing | Aayush | todo | — |
 | Q5-C | Large-tier prediction generation via the re-ranker | TBD | todo | — |
 
 Non-code deliverables (Codabench uploads, screenshots, `design_note.md`, `README.md`) are not
@@ -75,7 +75,8 @@ The most important section. If it is empty, nobody is stuck.
 - **Anurag is waiting on `Q2-A1`** (feature matrix, Aayush) before `Q2-B1` can start. **Agree the
   `build_matrix` output contract before Q2-A1 is written** — it is the only cross-person interface
   in the plan, and the shape is specified in `A2_PLAN.md`.
-- **Q4 and Q5 have no owner yet.** Both depend on `Q2-A2`; decide when it lands.
+- **`Q4-A`, `Q4-B`, `Q5-A`, `Q5-C` have no owner yet.** All depend on `Q2-A2`; decide when it
+  lands. `Q5-B` is Aayush's.
 
 ---
 
@@ -321,6 +322,12 @@ Append-only. Things that cost someone time — write them down so they cost only
 - **MIND's derived sessions are 93.3% singletons** (EB-NeRD: 48.5% session starts). Every MIND
   session feature scores per-impression AUC 0.5000. Implemented, measured, reported — not
   special-cased.
+- **BM25 is genuinely at chance on EB-NeRD, and that is not a bug.** Checked before reporting it:
+  3.7% zeros, mean 5.28, 57,161 distinct values, Danish tokenization working
+  (`"Natascha var ikke den første"` → `['natascha','var','ikke','den','første']`). Its pooled AUC
+  of 0.500007 is coincidence. Note this *reverses* A1's candidate-generation result, where BM25
+  beat embeddings on EB-NeRD (recall@200 2.01% vs 1.69%) — the same "the winner reverses between
+  retrieval and re-ranking" effect A1's design note already documents, now visible at feature level.
 - **A1's language split survives into the feature set.** Per-impression AUC of the two similarity
   features: `embed_cos` 0.5273 (EB-NeRD) vs **0.6168** (MIND, 3rd strongest feature overall);
   `bm25_score` **0.4970** (EB-NeRD — chance) vs 0.5449 (MIND). Same direction A1 measured for
@@ -350,6 +357,22 @@ Append-only. Things that cost someone time — write them down so they cost only
 ## Session log — Aayush
 
 Newest entry at the top. Only Aayush edits this section.
+
+### 2026-09-11 — Q1 evidence made reproducible
+
+**Item(s):** none — closing out Q1 rather than a ledger item.
+**Did:** Every Q1 measurement lived in scratch scripts that would be deleted, so none of the
+design note's numbers were reproducible from the repo. Added `eval.batch_ranking_auc()` (vectorised
+per-impression AUC via the rank identity, 7 tests) and `scripts/run_feature_analysis.py`, which
+writes `results/<ds>/feature_analysis.json` and `results/feature_analysis.md` — 52 feature rows
+across both datasets, each with per-impression AUC, pooled AUC, constant-within-impression share,
+NaN share and submission-safety. Runs in 46s for both datasets.
+**State:** Works. 121 tests pass, was 114. **Q1 is now genuinely done** — implemented, verified,
+and its findings reproducible by anyone with the repo.
+**Next:** `Q2-A2` — LightGBM LambdaRank.
+**For Anurag:** use `eval.batch_ranking_auc` for any feature or model comparison rather than
+`sklearn.roc_auc_score` over pooled rows — see the decision entry on why. It lives in `eval.py`,
+which is `Q5-B`; I have taken that item.
 
 ### 2026-09-11 — Q2-A1: the shared feature matrix
 

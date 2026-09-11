@@ -328,7 +328,7 @@ then you will know who has capacity.
 | Q4-A | Index memory and staged latency instrumentation | `src/ire_a1/serving.py` | M | **TBD** | Q2-A2 | new |
 | Q4-B | Serving benchmark CLI and cost/QPS arithmetic | `scripts/run_serving_bench.py` | M | **TBD** | Q4-A | new |
 | Q5-A | Eval harness: `--method reranker` arm | `scripts/run_eval.py` | M | **TBD** | Q2-A2 | modify |
-| Q5-B | Head/tail article slicing | `src/ire_a1/eval.py`, `scripts/run_eval.py` | M | **TBD** | — | modify |
+| Q5-B | Head/tail article slicing | `src/ire_a1/eval.py`, `scripts/run_eval.py` | M | **Aayush** | — | modify |
 | Q5-C | Large-tier prediction generation via the re-ranker | `scripts/generate_submission.py` | M | **TBD** | Q2-A2 | modify |
 
 **Worth knowing when you assign these:** Q5 is the cheapest question in the assignment. Three of

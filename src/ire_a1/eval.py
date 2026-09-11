@@ -13,6 +13,7 @@
 from collections import defaultdict
 
 import numpy as np
+import polars as pl
 from sklearn.metrics import ndcg_score, roc_auc_score
 
 
@@ -57,6 +58,71 @@ def ranking_metrics(scores: list[float], labels: list[int]) -> dict[str, float |
         result["ndcg@10"] = float(ndcg_score([labels_arr], [scores_arr], k=10))
 
     return result
+
+
+def batch_ranking_auc(
+    impression_ids, labels, scores
+) -> dict[str, float | int]:
+    """Mean per-impression AUC over many impressions at once.
+
+    **Use this, not a pooled AUC over all candidate rows.** Both leaderboards re-rank each
+    impression's *own* slate, so a score that is constant within an impression cannot reorder
+    anything -- yet pooled AUC happily reports it as informative. Measured on real features:
+    `slate_size` reads 0.3088 pooled and exactly 0.5000 per impression, `hist_len` 0.5157 and
+    0.5000. Those features are still useful to a GBDT as interaction context, but they have no
+    standalone ranking power and must never be reported as though they do.
+
+    `ranking_metrics()` above is the per-impression version for a single impression and is what
+    `run_eval.py` aggregates; this is the vectorised form for scoring one feature or model score
+    across a whole split, where a million `roc_auc_score` calls does not finish in reasonable
+    time. It uses the rank identity instead:
+
+        AUC = (sum of positive ranks - npos(npos+1)/2) / (npos * nneg)
+
+    Impressions where the score is constant contribute 0.5 -- a tie ordered arbitrarily is a coin
+    flip, which is the honest value, not something to drop. `constant_frac` reports how much of
+    the result that is, so a feature that is "dead for ranking" is visible rather than averaged
+    into respectability.
+
+    Returns the mean AUC plus the counts behind it. NaN scores are dropped before ranking.
+    """
+    df = pl.DataFrame({
+        "imp": impression_ids,
+        "y": np.asarray(labels).astype(np.int64),
+        "v": np.asarray(scores, dtype=np.float64),
+    }).filter(pl.col("v").is_not_nan() & pl.col("v").is_not_null())
+
+    if df.height == 0:
+        return {"auc": float("nan"), "n_impressions": 0, "n_scorable": 0,
+                "n_varying": 0, "constant_frac": float("nan")}
+
+    grouped = (df.with_columns(rank=pl.col("v").rank("average").over("imp"))
+                 .group_by("imp")
+                 .agg(n=pl.len(), npos=pl.col("y").sum(),
+                      rank_sum=(pl.col("rank") * pl.col("y")).sum(),
+                      distinct=pl.col("v").n_unique()))
+    n_impressions = grouped.height
+    # AUC is undefined for an impression that is all clicks or no clicks
+    scorable = grouped.filter((pl.col("npos") > 0) & (pl.col("npos") < pl.col("n")))
+    if scorable.height == 0:
+        return {"auc": float("nan"), "n_impressions": n_impressions, "n_scorable": 0,
+                "n_varying": 0, "constant_frac": float("nan")}
+
+    varying = scorable.filter(pl.col("distinct") > 1)
+    constant_frac = 1.0 - varying.height / scorable.height
+    if varying.height == 0:
+        return {"auc": 0.5, "n_impressions": n_impressions, "n_scorable": scorable.height,
+                "n_varying": 0, "constant_frac": 1.0}
+
+    npos, n = varying["npos"], varying["n"]
+    auc = ((varying["rank_sum"] - npos * (npos + 1) / 2) / (npos * (n - npos))).mean()
+    return {
+        "auc": float(auc) * (1 - constant_frac) + 0.5 * constant_frac,
+        "n_impressions": n_impressions,
+        "n_scorable": scorable.height,
+        "n_varying": varying.height,
+        "constant_frac": constant_frac,
+    }
 
 
 def intra_list_category_diversity(article_ids: list[str], category_lookup: dict[str, str]) -> float | None:

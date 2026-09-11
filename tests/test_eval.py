@@ -1,7 +1,10 @@
 import numpy as np
+import pytest
+from sklearn.metrics import roc_auc_score
 
 from ire_a1.eval import (
     article_popularity,
+    batch_ranking_auc,
     bootstrap_ci,
     bootstrap_coverage_ci,
     cold_warm_slice,
@@ -130,3 +133,66 @@ def test_article_popularity_safe_vs_leaky_scoping():
     assert safe["a"] == 2
     assert leaky["b"] == 3
     assert leaky["a"] == 2
+
+
+# --- A2: vectorised per-impression AUC -----------------------------------------------------
+
+def test_batch_ranking_auc_matches_sklearn_on_one_impression():
+    """The rank identity must agree with the reference implementation, or every A2 feature
+    number is quietly wrong."""
+    labels = [0, 1, 0, 1, 0, 0, 1]
+    scores = [0.1, 0.9, 0.4, 0.7, 0.2, 0.35, 0.6]
+    result = batch_ranking_auc(["i1"] * 7, labels, scores)
+    assert result["auc"] == pytest.approx(roc_auc_score(labels, scores))
+
+
+def test_batch_ranking_auc_averages_over_impressions_not_rows():
+    """A perfect ranker inside each impression is AUC 1.0, even though pooling the two
+    impressions' scores together would interleave them and score lower."""
+    imp = ["a", "a", "b", "b"]
+    labels = [0, 1, 0, 1]
+    scores = [0.1, 0.2, 10.0, 20.0]      # b's scores dwarf a's; pooled this still separates
+    assert batch_ranking_auc(imp, labels, scores)["auc"] == pytest.approx(1.0)
+
+    inverted = [0.2, 0.1, 20.0, 10.0]
+    assert batch_ranking_auc(imp, labels, inverted)["auc"] == pytest.approx(0.0)
+
+
+def test_a_score_constant_within_an_impression_is_half_not_informative():
+    """The correction this function exists for. `slate_size` is constant across an impression's
+    candidates, so it cannot reorder them -- pooled AUC reported 0.3088 for it, which is noise
+    from between-impression variation, not ranking power."""
+    result = batch_ranking_auc(["a", "a", "b", "b"], [0, 1, 0, 1], [5.0, 5.0, 9.0, 9.0])
+    assert result["auc"] == pytest.approx(0.5)
+    assert result["constant_frac"] == pytest.approx(1.0)
+    assert result["n_varying"] == 0
+
+
+def test_constant_impressions_are_blended_in_at_half_and_reported():
+    """One impression ranks perfectly, one is constant. The answer is the average of 1.0 and
+    0.5, and `constant_frac` makes the dilution visible instead of silent."""
+    result = batch_ranking_auc(["a", "a", "b", "b"], [0, 1, 0, 1], [0.1, 0.9, 7.0, 7.0])
+    assert result["auc"] == pytest.approx(0.75)
+    assert result["constant_frac"] == pytest.approx(0.5)
+    assert result["n_scorable"] == 2 and result["n_varying"] == 1
+
+
+def test_impressions_without_both_classes_are_not_scorable():
+    """AUC is undefined with no negative or no positive; those impressions are excluded rather
+    than counted as 0 or 0.5."""
+    result = batch_ranking_auc(["a", "a", "b", "b"], [1, 1, 0, 1], [0.1, 0.2, 0.1, 0.9])
+    assert result["n_impressions"] == 2
+    assert result["n_scorable"] == 1
+    assert result["auc"] == pytest.approx(1.0)
+
+
+def test_nan_scores_are_dropped_before_ranking():
+    """MIND's freshness_hours is 100% NaN; it must not poison the ranking of everything else."""
+    result = batch_ranking_auc(["a"] * 4, [0, 1, 0, 1], [0.1, 0.9, float("nan"), 0.8])
+    assert not np.isnan(result["auc"])
+
+
+def test_empty_input_returns_nan_rather_than_raising():
+    result = batch_ranking_auc([], [], [])
+    assert np.isnan(result["auc"])
+    assert result["n_impressions"] == 0
