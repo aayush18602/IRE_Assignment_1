@@ -34,7 +34,7 @@ name against it, if a `TBD` item is marked `done` without first being assigned, 
 | Q1-C | Session context, dwell, position bias | Aayush | done | Aayush, 2026-09-11 |
 | Q1-D | Article features: trailing-window popularity, CTR, freshness | Aayush | done | Aayush, 2026-09-11 |
 | Q1-E | Behaviour-window boundary enforcement + leakage tests | Aayush | done | Aayush, 2026-09-11 |
-| Q2-A1 | Feature matrix builder and impression grouping — **shared substrate** | Aayush | todo | — |
+| Q2-A1 | Feature matrix builder and impression grouping — **shared substrate**. Also carries Q1.1's title (BM25) and embedding similarity features, deferred here because A1's indexes are loaded at this point | Aayush | todo | — |
 | Q2-A2 | Option A: LightGBM LambdaRank training, scoring, CLI | Aayush | todo | — |
 | Q2-B1 | Option B: neural ranker (MLP over the same feature matrix) | Anurag | todo | — |
 | Q2-B2 | Option B: training loop and CLI | Anurag | todo | — |
@@ -82,6 +82,20 @@ The most important section. If it is empty, nobody is stuck.
 ## Decisions taken
 
 Append-only. One entry per decision that someone else would otherwise re-litigate.
+
+### 2026-09-11 — Q1.1's title and embedding features are deferred to Q2-A1, on purpose
+
+Audited Q1 against the PDF after finishing `Q1-E`. Q1.1 asks for the user's recent clicked
+articles as **titles, categories and embeddings**. Categories, click count and exponential decay
+all ship in `behaviour.py`. Titles and embeddings do not — they are BM25 and ANN similarity, which
+are A1 components (`bm25.score_candidates`, `ann.score_candidates`), and `reranker.build_matrix`
+calls them at the point where those indexes are already built. Recomputing them inside
+`behaviour.py` would mean loading a 226MB embedding table twice.
+
+Defensible engineering, but it was only a sentence in a docstring, which is how a graded
+requirement goes missing. `Q2-A1`'s ledger row now names them explicitly, so the item is not done
+until they exist. **Q1 is complete except for these two, and they are tracked rather than
+forgotten.**
 
 ### 2026-09-11 — The two-index "future-blind" test found a real leak
 

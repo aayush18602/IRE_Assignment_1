@@ -297,7 +297,7 @@ That contract is the whole interface. Once it is fixed, Q2-A2 and Q2-B1 proceed 
 | Q1-C | Session context, dwell, position bias | `src/ire_a1/behaviour.py` | M | **Aayush** | Q1-A | new |
 | Q1-D | Article features: trailing-window popularity, CTR, freshness | `src/ire_a1/article_features.py` | L | **Aayush** | Q1-A | new |
 | Q1-E | Behaviour-window boundary enforcement + leakage tests | `tests/test_no_leakage.py`, `tests/test_behaviour.py` | M | **Aayush** | Q1-B, Q1-C, Q1-D | modify |
-| Q2-A1 | Feature matrix builder and impression grouping — **shared substrate** | `src/ire_a1/reranker.py` | L | **Aayush** | Q1-E | new |
+| Q2-A1 | Feature matrix builder and impression grouping — **shared substrate**. Also carries Q1.1's title (BM25) and embedding similarity features, deferred here because A1's indexes are loaded at this point | `src/ire_a1/reranker.py` | L | **Aayush** | Q1-E | new |
 | Q2-A2 | Option A: LightGBM LambdaRank training, scoring, CLI | `src/ire_a1/reranker.py`, `scripts/run_reranker.py` | L | **Aayush** | Q2-A1 | new |
 
 ### Anurag — Q2 Option B and Q3
