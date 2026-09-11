@@ -101,7 +101,8 @@ def write_comparison(results_dir: Path) -> Path | None:
         "|---|---|---|---|---|---|---|---|",
     ]
     for row in rows:
-        name = f"**{row['method']}**" if row["method"] == "reranker" else f"`{row['method']}`"
+        name = (f"**{row['method']}**" if row["method"].startswith("reranker")
+                else f"`{row['method']}`")
         lines.append(
             f"| {row['dataset']} | {row['variant']} | {name} | {row['auc']:.4f} | "
             f"[{row['ci_low']:.3f}, {row['ci_high']:.3f}] | {row['mrr']:.4f} | "
@@ -163,6 +164,14 @@ def main() -> None:
                  if name in test.feature_names}
     results = {name: score_metrics(test, scores, args.n_boot) for name, scores in baselines.items()}
     results["reranker"] = score_metrics(test, model.predict(test), args.n_boot)
+    # Reported as its own row rather than folded into the model: a GBDT cannot reproduce a
+    # continuous input feature's ordering because it bins its inputs, and breaking the resulting
+    # ties with the strongest continuous feature recovers part of that loss. Showing both keeps
+    # the effect visible instead of quietly improving the headline.
+    if best_similarity := next((n for n in ("embed_cos", "bm25_score")
+                                if n in test.feature_names), None):
+        results[f"reranker + {best_similarity} tie-break"] = score_metrics(
+            test, model.predict(test, tie_breaker=best_similarity), args.n_boot)
 
     importance = model.feature_importance()
     degenerate = model.degenerate_features(train)
@@ -171,16 +180,17 @@ def main() -> None:
     # sets, not an impossible one -- but it is the kind of result that reads as a bug if it is
     # left for the reader to spot in a table, so say it here.
     best_baseline = max(
-        ((name, metrics["auc"]["mean"]) for name, metrics in results.items() if name != "reranker"),
+        ((name, metrics["auc"]["mean"]) for name, metrics in results.items()
+         if not name.startswith("reranker")),
         key=lambda pair: pair[1], default=(None, None))
-    reranker_auc = results["reranker"]["auc"]["mean"]
+    reranker_auc = max(m["auc"]["mean"] for n, m in results.items() if n.startswith("reranker"))
     beats_baselines = best_baseline[0] is None or reranker_auc > best_baseline[1]
 
     print(f"\n=== {args.dataset}: test split, {test.n_impressions:,} impressions ===")
-    header = f"  {'method':<14}" + "".join(f"{m:>22}" for m in METRICS)
+    header = f"  {'method':<32}" + "".join(f"{m:>22}" for m in METRICS)
     print(header)
     for name, metrics in results.items():
-        row = f"  {name:<14}"
+        row = f"  {name:<32}"
         for metric in METRICS:
             m = metrics[metric]
             row += f"{m['mean']:>10.4f} [{m['ci_low']:.3f},{m['ci_high']:.3f}]"

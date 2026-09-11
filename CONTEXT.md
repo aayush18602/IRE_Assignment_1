@@ -106,33 +106,59 @@ click-derived features (`ctr_1h`, `pop_clicks_*`, `ctr_24h`, `clicks_so_far_in_s
 neither Codabench test set ships click labels. The submission-safe row is the honest headline:
 still a large win on EB-NeRD (0.5273 → 0.7594), at a cost of −0.048.
 
-### 2026-09-11 — MIND's submission-safe re-ranker loses to a single cosine, and that is the result
+### 2026-09-11 — A GBDT cannot reproduce its own continuous input feature
 
-`0.5991` against `embed_cos`'s `0.6168`. It stops after **1 boosting round** and puts 54% of its
-gain on `pos_relative`, which measures per-impression AUC 0.4990 — random. That reads like a bug,
-so it was diagnosed rather than reported:
+**This corrects an earlier entry.** MIND's submission-safe re-ranker scores 0.5991 against
+`embed_cos`'s 0.6168 — losing to one of its own 19 inputs. I first wrote that off as "the data",
+which was incomplete. The dominant cause is mechanical and applies everywhere.
 
-- **Not hyperparameters.** Sweeping truncation level (20/50/100), learning rate (0.05/0.01),
-  subsampling and `min_data_in_leaf` all show the identical shape: round 1 best, then a drop that
-  never recovers. `lr=0.01` gives a round-1 score identical to `lr=0.05`.
-- **Not an unrepresentative val split**, which was my first guess. Scoring both splits at fixed
-  round counts, val tracks test throughout (round 1: val 0.3305 / test 0.3062; round 300: 0.3011 /
-  0.2951).
-- **Not the three degenerate features** (`freshness_hours`, `has_published_time`,
-  `session_dwell_so_far` are constant or all-NaN on MIND). Dropping them changes nothing; heavy
-  regularisation reaches 0.3086 test nDCG@5, still under `embed_cos` alone at 0.3092.
+The decisive test: train the model on **`embed_cos` alone**, nothing else.
 
-So it is the data. Strip MIND's click-derived features and one feature (`embed_cos`, 0.6168) carries
-almost everything, with its companions near-random for ranking — `pop_inviews_24h` is 0.4857 on
-MIND versus 0.6113 on EB-NeRD. LambdaRank overfits the weak ones and lands below where it started.
+| | MIND test AUC | distinct scores per impression |
+|---|---|---|
+| raw `embed_cos` | **0.6168** | 97.4% |
+| GBDT given only `embed_cos` | 0.6067 | 87.4% |
+| … 4x finer bins (`max_bin=1024`) | 0.6080 | 94.4% |
+| … 32x finer bins | 0.5979 | 94.8% |
 
-**This is the cleanest Q9 answer in the project.** On MIND, the *entire* value of the re-ranker
-comes from click feedback that the released test set does not provide. On EB-NeRD it does not,
-because EB-NeRD's in-view counts carry real editorial-promotion signal that MIND's do not. Same
-pipeline, opposite conclusions, and the difference is a property of the datasets.
+With a single input and nothing to be confused by, it still loses. **LightGBM bins every feature**
+(`max_bin`, default 255) and each tree emits one value per leaf, so a continuous score's ordering
+survives only to that resolution. Candidates the raw feature cleanly separates come out tied, and
+ties break arbitrarily. Finer bins raise the distinct-score rate but start overfitting before they
+close the gap.
 
-`run_reranker.py` now prints a warning when the re-ranker fails to beat its best input feature, and
-lists zero-variance features, so this cannot be mistaken for a silent success next time.
+So the ~0.018 shortfall decomposes into a **quantisation tax of ~0.010** — paid by any re-ranker
+over a strong continuous feature, on any dataset — plus ~0.008 from 18 near-random companions.
+
+**Why it only shows up on MIND submission-safe:** the tax is fixed, the gains are not. EB-NeRD's
+model gains +0.23 from combining features, so 0.01 is invisible. Strip MIND's click features and
+there is nothing left to gain, so the tax is the entire result.
+
+Still true from the earlier diagnosis, now as the *second* cause rather than the only one: it is
+not hyperparameters (truncation 20/50/100, lr 0.05/0.01, subsampling, `min_data_in_leaf` all give
+the same shape; `lr=0.01` reproduces `lr=0.05`'s round-1 score exactly), not an unrepresentative
+val split (val tracks test at every fixed round count), and not the three zero-variance columns
+(dropping them changes nothing).
+
+**Mitigation shipped:** `LambdaRanker.predict(tie_breaker=...)` orders candidates the model scored
+*identically* by a continuous input. It cannot reverse any ordering the model expressed, so it is
+non-harmful by construction, and it is reported as its own row rather than folded into the model.
+Measured effect is exactly where the theory predicts — it moves only the weak model:
+
+| run | re-ranker | + tie-break |
+|---|---|---|
+| EB-NeRD full | 0.8078 | 0.8078 |
+| EB-NeRD submission-safe | 0.7594 | 0.7594 |
+| MIND full | 0.6898 | 0.6898 |
+| MIND submission-safe | 0.5991 | **0.6024** |
+
+A no-op in three runs out of four is the confirmation that it is not quietly reshuffling anything:
+EB-NeRD slates average 12 candidates with a confident model, so there is almost nothing tied to
+break; MIND's 38-candidate slates with a one-round model are full of ties.
+
+**The Q9 conclusion is unchanged**, only better explained. Even with the tie-break, MIND's
+submission-safe re-ranker (0.6024) still loses to `embed_cos` (0.6168): on MIND the entire value of
+the re-ranker comes from click feedback the released test set withholds. On EB-NeRD it does not.
 
 ### 2026-09-11 — The `RankingMatrix` contract, and the group array that can fail silently
 

@@ -281,3 +281,45 @@ def test_saved_model_round_trips_with_its_feature_names(tmp_path):
     reloaded = LambdaRanker.load(path)
     assert reloaded.feature_names == model.feature_names
     assert np.allclose(reloaded.predict(train), model.predict(train))
+
+
+def test_tie_breaker_only_reorders_candidates_the_model_scored_equally():
+    """Non-harmful by construction: it must never change an ordering the model expressed. A GBDT
+    bins its inputs, so it cannot reproduce a continuous feature's ordering even when that feature
+    is its only input -- measured on MIND, a model trained on embed_cos alone scored 0.6067 against
+    the raw feature's 0.6168. Breaking the resulting ties recovers part of that."""
+    from ire_a1.reranker import LambdaRanker
+
+    train = _learnable_matrix()
+    model = LambdaRanker.train(train, num_boost_round=40, log_every=0)
+    plain = model.predict(train)
+    broken = model.predict(train, tie_breaker="noise")
+
+    offset = 0
+    for size in train.groups:
+        sl = slice(offset, offset + size)
+        a, b = plain[sl], broken[sl]
+        for i in range(size):
+            for j in range(size):
+                if a[i] > a[j]:                      # a strict ordering the model expressed
+                    assert b[i] > b[j], "tie-break reversed a ranking the model committed to"
+        offset += size
+
+
+def test_tie_breaker_actually_separates_tied_candidates():
+    from ire_a1.reranker import LambdaRanker
+
+    train = _learnable_matrix()
+    model = LambdaRanker.train(train, num_boost_round=5, log_every=0)   # coarse: many ties
+    plain = model.predict(train)
+    broken = model.predict(train, tie_breaker="signal")
+    assert len(np.unique(broken)) > len(np.unique(plain))
+
+
+def test_tie_breaker_rejects_a_feature_the_matrix_does_not_have():
+    from ire_a1.reranker import LambdaRanker
+
+    train = _learnable_matrix()
+    model = LambdaRanker.train(train, num_boost_round=10, log_every=0)
+    with pytest.raises(ValueError, match="tie_breaker"):
+        model.predict(train, tie_breaker="nope")
