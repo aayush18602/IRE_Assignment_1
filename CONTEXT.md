@@ -35,7 +35,7 @@ name against it, if a `TBD` item is marked `done` without first being assigned, 
 | Q1-D | Article features: trailing-window popularity, CTR, freshness | Aayush | done | Aayush, 2026-09-11 |
 | Q1-E | Behaviour-window boundary enforcement + leakage tests | Aayush | done | Aayush, 2026-09-11 |
 | Q2-A1 | Feature matrix builder and impression grouping — **shared substrate**. Also carries Q1.1's title (BM25) and embedding similarity features, deferred here because A1's indexes are loaded at this point | Aayush | done | Aayush, 2026-09-11 |
-| Q2-A2 | Option A: LightGBM LambdaRank training, scoring, CLI | Aayush | todo | — |
+| Q2-A2 | Option A: LightGBM LambdaRank training, scoring, CLI | Aayush | done | Aayush, 2026-09-11 |
 | Q2-B1 | Option B: neural ranker (MLP over the same feature matrix) | Anurag | todo | — |
 | Q2-B2 | Option B: training loop and CLI | Anurag | todo | — |
 | Q2-M | Q2.4 before/after metrics for both re-rankers | Both | todo | — |
@@ -83,6 +83,56 @@ The most important section. If it is empty, nobody is stuck.
 ## Decisions taken
 
 Append-only. One entry per decision that someone else would otherwise re-litigate.
+
+### 2026-09-11 — The re-ranker works, and the size of the win needs its caveats
+
+Test split, AUC, against A1's own scorers used alone:
+
+| dataset | variant | `bm25_score` | `embed_cos` | **re-ranker** |
+|---|---|---|---|---|
+| EB-NeRD | full | 0.4970 | 0.5273 | **0.8078** |
+| EB-NeRD | submission-safe | 0.4970 | 0.5273 | **0.7594** |
+| MIND | full | 0.5449 | 0.6168 | **0.6898** |
+| MIND | submission-safe | 0.5449 | 0.6168 | **0.5991** ✗ |
+
+The plan said to interrogate a jump this size rather than celebrate it. Four checks on EB-NeRD's
++0.31: val nDCG@10 at the best iteration (0.6736) matches test (0.6855), so it is not fitted to the
+val split; the model beats its own strongest feature `ctr_1h` (0.7387) by +0.069, so it is not a
+passthrough; the `as_of`-shift probe on that feature decays smoothly with no cliff; and the
+future-blind test covers the index. The win looks real.
+
+**Full-set numbers are not submittable.** 48.0% of EB-NeRD's model gain comes from the five
+click-derived features (`ctr_1h`, `pop_clicks_*`, `ctr_24h`, `clicks_so_far_in_session`), and
+neither Codabench test set ships click labels. The submission-safe row is the honest headline:
+still a large win on EB-NeRD (0.5273 → 0.7594), at a cost of −0.048.
+
+### 2026-09-11 — MIND's submission-safe re-ranker loses to a single cosine, and that is the result
+
+`0.5991` against `embed_cos`'s `0.6168`. It stops after **1 boosting round** and puts 54% of its
+gain on `pos_relative`, which measures per-impression AUC 0.4990 — random. That reads like a bug,
+so it was diagnosed rather than reported:
+
+- **Not hyperparameters.** Sweeping truncation level (20/50/100), learning rate (0.05/0.01),
+  subsampling and `min_data_in_leaf` all show the identical shape: round 1 best, then a drop that
+  never recovers. `lr=0.01` gives a round-1 score identical to `lr=0.05`.
+- **Not an unrepresentative val split**, which was my first guess. Scoring both splits at fixed
+  round counts, val tracks test throughout (round 1: val 0.3305 / test 0.3062; round 300: 0.3011 /
+  0.2951).
+- **Not the three degenerate features** (`freshness_hours`, `has_published_time`,
+  `session_dwell_so_far` are constant or all-NaN on MIND). Dropping them changes nothing; heavy
+  regularisation reaches 0.3086 test nDCG@5, still under `embed_cos` alone at 0.3092.
+
+So it is the data. Strip MIND's click-derived features and one feature (`embed_cos`, 0.6168) carries
+almost everything, with its companions near-random for ranking — `pop_inviews_24h` is 0.4857 on
+MIND versus 0.6113 on EB-NeRD. LambdaRank overfits the weak ones and lands below where it started.
+
+**This is the cleanest Q9 answer in the project.** On MIND, the *entire* value of the re-ranker
+comes from click feedback that the released test set does not provide. On EB-NeRD it does not,
+because EB-NeRD's in-view counts carry real editorial-promotion signal that MIND's do not. Same
+pipeline, opposite conclusions, and the difference is a property of the datasets.
+
+`run_reranker.py` now prints a warning when the re-ranker fails to beat its best input feature, and
+lists zero-variance features, so this cannot be mistaken for a silent success next time.
 
 ### 2026-09-11 — The `RankingMatrix` contract, and the group array that can fail silently
 
@@ -357,6 +407,23 @@ Append-only. Things that cost someone time — write them down so they cost only
 ## Session log — Aayush
 
 Newest entry at the top. Only Aayush edits this section.
+
+### 2026-09-11 — Q2-A2: LightGBM LambdaRank
+
+**Item(s):** `Q2-A2` — done. Q2 Option A complete.
+**Did:** `LambdaRanker` in `reranker.py` (train / predict / save / load / feature_importance /
+degenerate_features) plus `scripts/run_reranker.py`. Four runs: both datasets x full and
+submission-safe feature sets. `results/rerank_comparison.md` holds the table,
+`results/<ds>/rerank_before_after*.json` the detail. Added `lightgbm>=4.0,<5` and the `*.lgb` /
+`models/` gitignore entries. 129 tests, was 121.
+**State:** Works. EB-NeRD trains in ~50s, MIND in ~18s; feature building dominates at ~2 min a
+dataset. **Read the two decisions below before quoting any number from this** — one result is a
+failure, and it is a real one rather than a bug.
+**Next:** `Q4`/`Q5` are still unassigned, and `Q5-A` (`--method reranker` in `run_eval.py`) is the
+natural follow-on.
+**For Anurag:** your `Q2-B` neural ranker consumes the same matrix. The MIND submission-safe
+finding below is the one to read — it may well hit your model too, and if it does that is a finding
+about the data rather than about your architecture.
 
 ### 2026-09-11 — Q1 evidence made reproducible
 

@@ -125,3 +125,25 @@ def test_recent_history_asof_takes_last_n_after_cutoff_filtering():
     cutoff = datetime(2024, 1, 5)  # excludes "e"
     assert recent_history_asof(ids, times, cutoff, n_recent=2) == ["c", "d"]
     assert recent_history_asof(ids, times, cutoff, n_recent=10) == ["a", "b", "c", "d"]
+
+
+@skip_if_no_mind
+def test_mind_impression_ids_are_unique_across_its_two_source_files():
+    """MIND numbers impressions from 1 in *each* behaviors.tsv, so concatenating train and dev
+    collides 4,116 ids in our train split unless they are namespaced. A1 never joined or grouped
+    on the column so it never surfaced; A2's per-impression grouping and session join both break
+    on it -- the join by fanning out the feature matrix, the grouping by straddling impressions.
+    """
+    impressions = clean_mind(MIND_TRAIN, MIND_DEV)["impressions"]
+    assert impressions["impression_id"].n_unique() == impressions.height
+
+    sources = {i.split(":")[0] for i in impressions["impression_id"].to_list()[:5000]}
+    assert sources <= {"train", "dev"}, f"unexpected source tags: {sources}"
+
+
+@skip_if_no_ebnerd
+def test_ebnerd_impression_ids_are_unique():
+    """EB-NeRD ids are globally unique already, so they are left untouched -- this pins that,
+    rather than leaving it as an assumption the MIND fix might tempt someone to 'fix' too."""
+    impressions = clean_ebnerd(EBNERD_DEMO)["impressions"]
+    assert impressions["impression_id"].n_unique() == impressions.height

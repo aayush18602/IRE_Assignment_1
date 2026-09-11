@@ -126,12 +126,21 @@ def _read_mind_news(news_dir: Path) -> pl.DataFrame:
     )
 
 
-def _read_mind_behaviors(behaviors_dir: Path) -> pl.DataFrame:
+def _read_mind_behaviors(behaviors_dir: Path, source: str) -> pl.DataFrame:
+    """`source` namespaces the impression id.
+
+    MIND numbers impressions from 1 in *each* behaviors.tsv, so concatenating its train and dev
+    files produces colliding ids -- 4,116 of them in our train split. A1 never joined or grouped
+    on the column so it never showed, but any group-by (the re-ranker's per-impression grouping)
+    or join (session features) silently fans out or collapses rows on a duplicated key. The tag
+    refers to MIND's own file partition, not our temporal split, which is derived downstream and
+    cuts across both files.
+    """
     return pl.read_csv(
         behaviors_dir / "behaviors.tsv", separator="\t", quote_char=None, has_header=False,
         new_columns=MIND_BEHAVIOR_COLS,
         schema_overrides={"impression_id": pl.Int64, "history": pl.Utf8, "impressions": pl.Utf8},
-    )
+    ).with_columns(impression_id=pl.lit(f"{source}:") + pl.col("impression_id").cast(pl.Utf8))
 
 
 def clean_mind(train_dir: Path, dev_dir: Path) -> dict[str, pl.DataFrame]:
@@ -167,7 +176,8 @@ def clean_mind(train_dir: Path, dev_dir: Path) -> dict[str, pl.DataFrame]:
         total_read_time=pl.lit(None).cast(pl.Float32),
     ).select(ARTICLE_COLS)
 
-    behaviors = pl.concat([_read_mind_behaviors(train_dir), _read_mind_behaviors(dev_dir)])
+    behaviors = pl.concat([_read_mind_behaviors(train_dir, "train"),
+                           _read_mind_behaviors(dev_dir, "dev")])
     behaviors = behaviors.with_columns(
         timestamp=pl.col("time").str.strptime(pl.Datetime, "%m/%d/%Y %I:%M:%S %p"),
     )
@@ -178,7 +188,7 @@ def clean_mind(train_dir: Path, dev_dir: Path) -> dict[str, pl.DataFrame]:
 
     impressions = behaviors.select(
         dataset=pl.lit("mind"),
-        impression_id=pl.col("impression_id").cast(pl.Utf8),
+        impression_id=pl.col("impression_id"),   # already namespaced in _read_mind_behaviors
         user_id=pl.col("user_id"),
         timestamp=pl.col("timestamp"),
         candidates=candidates_col,

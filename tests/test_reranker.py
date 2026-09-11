@@ -189,3 +189,95 @@ def test_embedding_similarity_appears_when_embeddings_are_supplied(tmp_path):
     assert mb.similarity_features == ["embed_cos"]
     m = mb.transform(_impressions())
     assert np.all(np.isfinite(m.column("embed_cos")))
+
+
+# --- Q2 Option A: the LambdaRank model --------------------------------------------------------
+
+def _learnable_matrix(n_impressions: int = 200, n_candidates: int = 8, seed: int = 0):
+    """A synthetic ranking task where one feature decides the click, so a working model must
+    reach near-perfect ranking and a broken one cannot fake it."""
+    from ire_a1.reranker import RankingMatrix
+
+    rng = np.random.default_rng(seed)
+    n_rows = n_impressions * n_candidates
+    signal = rng.normal(size=n_rows).astype(np.float32)
+    noise = rng.normal(size=n_rows).astype(np.float32)
+    X = np.column_stack([signal, noise]).astype(np.float32)
+
+    y = np.zeros(n_rows, dtype=np.int8)
+    for i in range(n_impressions):
+        sl = slice(i * n_candidates, (i + 1) * n_candidates)
+        y[sl][np.argmax(signal[sl])] = 1          # the highest-signal candidate is the click
+    return RankingMatrix(
+        X=X, y=y,
+        groups=np.full(n_impressions, n_candidates, dtype=np.int32),
+        feature_names=["signal", "noise"],
+        impression_ids=np.array([f"i{i}" for i in range(n_impressions)]),
+        article_ids=np.array([f"a{i}" for i in range(n_rows)]),
+    )
+
+
+def test_lambdarank_learns_a_ranking_it_can_actually_learn():
+    from ire_a1.reranker import LambdaRanker
+
+    train = _learnable_matrix(seed=0)
+    test = _learnable_matrix(seed=1)
+    model = LambdaRanker.train(train, num_boost_round=60, log_every=0)
+    scores = model.predict(test)
+
+    hits = sum(
+        int(np.argmax(scores[i * 8:(i + 1) * 8]) == np.argmax(test.y[i * 8:(i + 1) * 8]))
+        for i in range(test.n_impressions)
+    )
+    assert hits / test.n_impressions > 0.7      # random would be 1/8
+    assert len(scores) == test.n_rows
+
+
+def test_lambdarank_puts_its_weight_on_the_informative_feature():
+    from ire_a1.reranker import LambdaRanker
+
+    model = LambdaRanker.train(_learnable_matrix(), num_boost_round=60, log_every=0)
+    importance = dict(model.feature_importance())
+    assert importance["signal"] > importance["noise"]
+    assert sum(importance.values()) == pytest.approx(1.0)
+
+
+def test_training_refuses_a_matrix_without_labels(builder):
+    from ire_a1.reranker import LambdaRanker
+
+    unlabelled = builder.transform(_impressions().drop("clicked"), with_labels=False)
+    with pytest.raises(ValueError, match="labels"):
+        LambdaRanker.train(unlabelled)
+
+
+def test_predict_refuses_a_matrix_with_different_features():
+    """LightGBM would otherwise score positionally and return plausible nonsense -- the failure
+    mode when a submission-safe matrix is fed to a model trained on the full feature set."""
+    from ire_a1.reranker import LambdaRanker
+
+    model = LambdaRanker.train(_learnable_matrix(), num_boost_round=20, log_every=0)
+    fewer = _learnable_matrix().select(["signal"])
+    with pytest.raises(ValueError, match="missing"):
+        model.predict(fewer)
+
+
+def test_predict_refuses_the_same_features_in_a_different_order():
+    from ire_a1.reranker import LambdaRanker
+
+    model = LambdaRanker.train(_learnable_matrix(), num_boost_round=20, log_every=0)
+    swapped = _learnable_matrix().select(["noise", "signal"])
+    with pytest.raises(ValueError, match="different order"):
+        model.predict(swapped)
+
+
+def test_saved_model_round_trips_with_its_feature_names(tmp_path):
+    from ire_a1.reranker import LambdaRanker
+
+    train = _learnable_matrix()
+    model = LambdaRanker.train(train, num_boost_round=30, log_every=0)
+    path = tmp_path / "m.lgb"
+    model.save(path)
+
+    reloaded = LambdaRanker.load(path)
+    assert reloaded.feature_names == model.feature_names
+    assert np.allclose(reloaded.predict(train), model.predict(train))

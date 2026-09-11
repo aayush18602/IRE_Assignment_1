@@ -16,6 +16,7 @@ ANN similarity, and this is where those indexes are already loaded.
 """
 from __future__ import annotations
 
+import json
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -254,9 +255,23 @@ class MatrixBuilder:
 
         if session_feats is None:
             session_feats = session_features(impressions)
+        # A left join fans out when the right side has duplicate keys, which is exactly what a
+        # non-unique impression_id produces (MIND numbers from 1 in each of its behaviors files).
+        # Catching it here names the cause; without this the symptom is a numpy shape error two
+        # hundred lines later that says nothing about impression ids.
+        if session_feats["impression_id"].n_unique() != session_feats.height:
+            raise ValueError(
+                "session features contain duplicate impression_id values -- joining on them "
+                "would fan out the feature matrix. Impression ids must be unique within the "
+                "set being scored."
+            )
         sess = (rows.select("impression_id").with_row_index("_row")
                     .join(session_feats, on="impression_id", how="left")
                     .sort("_row").select(SESSION_FEATURE_NAMES))
+        if sess.height != rows.height:
+            raise ValueError(
+                f"session-feature join changed the row count ({rows.height} -> {sess.height})"
+            )
 
         blocks = [rows.select(SLATE_FEATURE_NAMES),
                   self._history.transform(rows),
@@ -307,3 +322,137 @@ def _contiguous_groups(impression_ids: pl.Series) -> tuple[np.ndarray, np.ndarra
             "array would straddle impressions"
         )
     return sizes, run_ids
+
+
+# ---------------------------------------------------------------------------
+# A2 Q2 Option A: LightGBM LambdaRank
+# ---------------------------------------------------------------------------
+
+DEFAULT_PARAMS: dict = {
+    "objective": "lambdarank",
+    # Optimise the metric the leaderboards actually report rather than a proxy. lambdarank
+    # compares candidates only within their own group, which is also why the features that are
+    # constant within an impression (see run_feature_analysis.py) cost nothing here: they can
+    # still gate a split, but they can never be mistaken for ranking signal.
+    "metric": "ndcg",
+    "eval_at": [5, 10],
+    "learning_rate": 0.05,
+    "num_leaves": 63,
+    "min_data_in_leaf": 100,
+    "feature_fraction": 0.9,
+    "bagging_fraction": 0.9,
+    "bagging_freq": 1,
+    "lambdarank_truncation_level": 20,
+    "verbosity": -1,
+    "seed": 42,
+    "deterministic": True,
+    "force_row_wise": True,   # silences the threading-strategy guess and keeps runs comparable
+}
+
+
+class LambdaRanker:
+    """LightGBM LambdaRank over a `RankingMatrix`.
+
+    Option A of Q2.2. Chosen over the neural alternative for the GBDT track because it needs no
+    GPU, trains in minutes on CPU, and takes NaN as a first-class split direction -- which matters
+    here, since `freshness_hours` is 100% NaN on MIND (no `published_time`) and imputing it would
+    invent a publication date rather than admit the field is missing.
+    """
+
+    def __init__(self, booster, feature_names: list[str], params: dict):
+        self.booster = booster
+        self.feature_names = feature_names
+        self.params = params
+
+    @classmethod
+    def train(
+        cls,
+        train: RankingMatrix,
+        valid: RankingMatrix | None = None,
+        *,
+        num_boost_round: int = 1000,
+        early_stopping_rounds: int = 50,
+        params: dict | None = None,
+        log_every: int = 50,
+    ) -> "LambdaRanker":
+        """Train on `train`, early-stopping on `valid`'s nDCG@10.
+
+        `valid` must be a *later* temporal split than `train` -- stopping on a random split would
+        pick the round that best fits the period being predicted, which is the same leak the
+        temporal split exists to prevent, just moved into hyperparameter selection.
+        """
+        import lightgbm as lgb
+
+        if train.y is None:
+            raise ValueError("training needs labels; build the matrix with with_labels=True")
+
+        merged = {**DEFAULT_PARAMS, **(params or {})}
+        train_set = lgb.Dataset(train.X, label=train.y, group=train.groups,
+                                feature_name=train.feature_names, free_raw_data=False)
+        callbacks = [lgb.log_evaluation(period=log_every)]
+        valid_sets, valid_names = [], []
+        if valid is not None and valid.y is not None:
+            valid_sets.append(lgb.Dataset(valid.X, label=valid.y, group=valid.groups,
+                                          feature_name=valid.feature_names, reference=train_set))
+            valid_names.append("valid")
+            callbacks.append(lgb.early_stopping(early_stopping_rounds, verbose=False))
+
+        booster = lgb.train(merged, train_set, num_boost_round=num_boost_round,
+                            valid_sets=valid_sets, valid_names=valid_names, callbacks=callbacks)
+        return cls(booster, list(train.feature_names), merged)
+
+    def predict(self, matrix: RankingMatrix) -> np.ndarray:
+        """One score per row, in row order. Refuses a matrix whose columns do not match the ones
+        the model was trained on -- LightGBM would otherwise happily score positionally and
+        return plausible nonsense."""
+        if matrix.feature_names != self.feature_names:
+            missing = [n for n in self.feature_names if n not in matrix.feature_names]
+            extra = [n for n in matrix.feature_names if n not in self.feature_names]
+            raise ValueError(
+                "feature mismatch between the model and the matrix being scored"
+                + (f"; missing {missing}" if missing else "")
+                + (f"; unexpected {extra}" if extra else "")
+                + ("; same names, different order" if not missing and not extra else "")
+            )
+        return self.booster.predict(matrix.X, num_iteration=self.booster.best_iteration)
+
+    def degenerate_features(self, matrix: RankingMatrix) -> list[str]:
+        """Columns with no variance at all on this data -- constant or entirely NaN.
+
+        They are not always a bug: `freshness_hours` is 100% NaN on MIND because MIND ships no
+        `published_time`, and `session_dwell_so_far` is constant because it ships no dwell
+        instrumentation. But a feature that cannot vary cannot inform a split, so a long list
+        here means the feature set is smaller than it looks and the model has less to work with
+        than the column count suggests.
+        """
+        dead = []
+        for i, name in enumerate(matrix.feature_names):
+            column = matrix.X[:, i]
+            finite = column[np.isfinite(column)]
+            if len(finite) == 0 or finite.std() == 0:
+                dead.append(name)
+        return dead
+
+    def feature_importance(self) -> list[tuple[str, float]]:
+        """Gain-based importance, descending. Worth reading before believing a good result: a
+        trailing-popularity window whose boundary is off by one impression looks like a brilliant
+        model, and it shows up here as one feature dominating everything else."""
+        gains = self.booster.feature_importance(importance_type="gain")
+        total = float(gains.sum()) or 1.0
+        return sorted(((n, float(g) / total) for n, g in zip(self.feature_names, gains)),
+                      key=lambda p: -p[1])
+
+    def save(self, path: str | Path) -> None:
+        path = Path(path)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        self.booster.save_model(str(path), num_iteration=self.booster.best_iteration)
+        path.with_suffix(".features.json").write_text(
+            json.dumps({"feature_names": self.feature_names, "params": self.params}, indent=2))
+
+    @classmethod
+    def load(cls, path: str | Path) -> "LambdaRanker":
+        import lightgbm as lgb
+
+        path = Path(path)
+        meta = json.loads(path.with_suffix(".features.json").read_text())
+        return cls(lgb.Booster(model_file=str(path)), meta["feature_names"], meta["params"])

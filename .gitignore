@@ -2,6 +2,9 @@
 *.zip
 *.pt
 *.ckpt
+*.lgb
+*.txt.model
+models/
 data/
 __pycache__/
 
