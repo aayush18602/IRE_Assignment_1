@@ -440,7 +440,7 @@ class LambdaRanker:
             values = np.nan_to_num(raw[sl], nan=0.0)
             within[sl] = values.argsort().argsort() / max(size - 1, 1)
             offset += size
-        epsilon = 1e-6 * (float(np.ptp(scores)) or 1.0)
+        epsilon = 1e-6 * (float(np.ptp(scores)) if len(scores) else 1.0)
         return scores + epsilon * within
 
     def degenerate_features(self, matrix: RankingMatrix) -> list[str]:
