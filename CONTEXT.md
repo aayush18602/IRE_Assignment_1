@@ -106,6 +106,38 @@ click-derived features (`ctr_1h`, `pop_clicks_*`, `ctr_24h`, `clicks_so_far_in_s
 neither Codabench test set ships click labels. The submission-safe row is the honest headline:
 still a large win on EB-NeRD (0.5273 → 0.7594), at a cost of −0.048.
 
+### 2026-09-11 — The literal Q2.1 pipeline, measured: ~270x worse than what we ship
+
+Q2.1 says "use A1's candidate generator to retrieve top-K, then re-rank". We rank the shown slate
+instead and feed A1's scorers in as features. That decision was justified by A1's recall@200
+(2.01% EB-NeRD / 1.43% MIND) — a ceiling no re-ranker can lift, since it can reorder a pool but not
+add to it. Now it is also *demonstrated*, on the full EB-NeRD test split:
+
+| scope | method | MRR | nDCG@5 | nDCG@10 |
+|---|---|---|---|---|
+| **end-to-end** (every impression; a miss scores 0) | BM25's own top-200 order | 0.0004 | 0.0001 | 0.0002 |
+| **end-to-end** | re-ranker over the top-200 | **0.0022** | 0.0021 | 0.0023 |
+| conditional (the 2.0% where stage 1 retrieved the click) | BM25 order | 0.0210 | 0.0026 | 0.0091 |
+| conditional | re-ranker | 0.1079 | 0.1026 | 0.1146 |
+
+Against the shipped pipeline's MRR of **0.5919**. The clicked article is in the retrieved pool for
+2.03% of impressions; stage 2 cannot recover the other 98%.
+
+Two things worth reading off the conditional rows rather than the headline. First, the re-ranker
+is *not* the problem: on the 2% where stage 1 did retrieve the click, it lifts MRR 5x over BM25's
+own ordering (0.0210 → 0.1079). Stage 1 is the problem, and that is a cleaner argument than "the
+numbers are bad". Second, the conditional rows are explicitly **not a system metric** — the
+script labels them so — because quoting them alone would be exactly the favourable slicing Q9
+exists to discourage.
+
+End-to-end omits AUC on purpose: MRR and nDCG are genuinely 0 on a miss, but AUC with no positive
+present is *undefined*, not 0, and averaging a 0 in would manufacture a number. An earlier draft of
+the script reported end-to-end AUC 0.0107, which was exactly that mistake.
+
+**MIND was not run, and does not need to be.** Its ceiling is already measured by A1 on the full
+split (recall@200 = 1.43%, *lower* than EB-NeRD's), so the argument transfers. Running it would
+also require regenerating a cache — see Gotchas.
+
 ### 2026-09-11 — A GBDT cannot reproduce its own continuous input feature
 
 **This corrects an earlier entry.** MIND's submission-safe re-ranker scores 0.5991 against
@@ -380,6 +412,22 @@ Append-only. Things that cost someone time — write them down so they cost only
   `schema.LEAKY_IMPRESSION_COLS` names the whole group.
 - **`total_inviews` / `total_pageviews` are only 48.1% non-null** on EB-NeRD articles, on top of
   being leaky. Q9 material only.
+- **Namespacing MIND's ids made A1's cached candidate files unjoinable.** The fix for the
+  4,116 colliding ids renamed every MIND `impression_id` to `train:N` / `dev:N`; the three caches
+  under `data/processed/mind/{bm25,embeddings_eval,embeddings_eval_mpnet}/candidates_test.parquet`
+  were written in August under the old ids and now join to zero rows. EB-NeRD is unaffected
+  (71,631/71,631). **A1's reported numbers are safe** — they are aggregates in `results/`, not
+  keyed on ids. Regenerating is `python scripts/run_bm25.py --dataset mind` and it is *slow*: it
+  uses A1's full-catalogue `query()` path, and was killed after 40 min of CPU with no visible
+  progress. Run it with `python -u` so stdout is not buffered, and only if something actually needs
+  the file. `run_two_stage.py` exits with this exact instruction if it hits the stale cache.
+  **Note:** `data/processed/mind/bm25/candidates_test.parquet` currently holds only 400 rows from
+  an aborted `--limit` run — it is git-ignored and nothing reads it, but do not mistake it for real.
+- **Materialising 200 candidates per impression OOM-killed the machine.** 71,631 × 200 = 14.3M
+  rows; the feature transform hit 8.3GB resident and the kernel killed it, taking VS Code with it.
+  Anything that expands impressions by a large factor must batch — `run_two_stage.py` now does
+  4,000 impressions at a time and holds steady at ~6GB free. Worth remembering for the large-tier
+  submission (13.5M impressions × ~12 candidates ≈ 162M rows).
 - **EB-NeRD's fixed history snapshot causes a real train/test skew.** The snapshot ends
   2023-05-25 while impressions run to 06-01, so history gets staler as the impression date
   advances. Measured means: `hours_since_last_click` 12.6 (train) → 113.9 (val) → 159.8 (test),
@@ -433,6 +481,20 @@ Append-only. Things that cost someone time — write them down so they cost only
 ## Session log — Aayush
 
 Newest entry at the top. Only Aayush edits this section.
+
+### 2026-09-11 — Q2.1 run literally, so the substitution is measured rather than argued
+
+**Item(s):** closes the one open caveat on `Q2-A2`. **Q2 Option A is now complete on all four
+sub-items.**
+**Did:** `scripts/run_two_stage.py` — A1's full-catalogue top-200, re-ranked by the trained model,
+against A1's cached candidate lists. Full EB-NeRD test split, 14.3M (impression, candidate) rows,
+batched at 4,000 impressions so it never materialises the whole matrix. Result in
+`results/ebnerd/two_stage_literal.json`.
+**State:** Works. **It took the machine down first** — see the OOM note in Gotchas.
+**Next:** `Q5-A`/`Q5-B`, or `Q4`. Also see the MIND cache note below before touching anything that
+joins on MIND's `impression_id`.
+**For Anurag:** if `Q2-B` ever needs the literal pipeline for comparison, the script takes any
+model exposing `predict(matrix)`; the retrieved lists are already on disk for EB-NeRD.
 
 ### 2026-09-11 — Q2-A2: LightGBM LambdaRank
 
