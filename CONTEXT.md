@@ -34,7 +34,7 @@ name against it, if a `TBD` item is marked `done` without first being assigned, 
 | Q1-C | Session context, dwell, position bias | Aayush | done | Aayush, 2026-09-11 |
 | Q1-D | Article features: trailing-window popularity, CTR, freshness | Aayush | done | Aayush, 2026-09-11 |
 | Q1-E | Behaviour-window boundary enforcement + leakage tests | Aayush | done | Aayush, 2026-09-11 |
-| Q2-A1 | Feature matrix builder and impression grouping — **shared substrate**. Also carries Q1.1's title (BM25) and embedding similarity features, deferred here because A1's indexes are loaded at this point | Aayush | todo | — |
+| Q2-A1 | Feature matrix builder and impression grouping — **shared substrate**. Also carries Q1.1's title (BM25) and embedding similarity features, deferred here because A1's indexes are loaded at this point | Aayush | done | Aayush, 2026-09-11 |
 | Q2-A2 | Option A: LightGBM LambdaRank training, scoring, CLI | Aayush | todo | — |
 | Q2-B1 | Option B: neural ranker (MLP over the same feature matrix) | Anurag | todo | — |
 | Q2-B2 | Option B: training loop and CLI | Anurag | todo | — |
@@ -82,6 +82,36 @@ The most important section. If it is empty, nobody is stuck.
 ## Decisions taken
 
 Append-only. One entry per decision that someone else would otherwise re-litigate.
+
+### 2026-09-11 — The `RankingMatrix` contract, and the group array that can fail silently
+
+`MatrixBuilder.transform()` returns a frozen `RankingMatrix`:
+
+```
+X              float32 [n_rows, n_features]     rows are (impression, candidate)
+y              int8    [n_rows] or None         None on the submission path
+groups         int32   [n_impressions]          candidates per impression, IN ROW ORDER
+feature_names  list[str]                        index-aligned with X's columns
+impression_ids [n_impressions]                  aligned with groups
+article_ids    [n_rows]                         aligned with X
+```
+
+**Why this is validated rather than documented.** A learning-to-rank model is told "the first g0
+rows are one impression, the next g1 the next". If that is out of step with the row order, nothing
+raises — it trains on impressions stitched together from unrelated candidates and scores nonsense.
+So `__post_init__` checks `groups.sum() == n_rows` and every alignment, and the run-length encoder
+checks the rows really *are* contiguous per impression rather than assuming three separate feature
+joins preserved order. Mutation-tested: sorting the exploded rows by `article_id` breaks 10 tests.
+
+`select(names)` subsets columns while keeping groups and labels intact — that is how the Q9
+with/without run and the submission-safe run are built from one matrix rather than two pipelines
+that could drift apart.
+
+**For Anurag (`Q2-B1`):** two columns contain NaN by design — `freshness_hours` (MIND: 100%, since
+it has no `published_time`) and `hours_since_first_seen` (0.05% on EB-NeRD, for articles never seen
+before the impression). LightGBM treats NaN as a first-class split direction; **an MLP will emit
+NaN loss and never recover.** Impute or mask them in your input layer, and say which you chose —
+the choice is a legitimate difference between the two models rather than a bug in either.
 
 ### 2026-09-11 — Q1.1's title and embedding features are deferred to Q2-A1, on purpose
 
@@ -291,6 +321,16 @@ Append-only. Things that cost someone time — write them down so they cost only
 - **MIND's derived sessions are 93.3% singletons** (EB-NeRD: 48.5% session starts). Every MIND
   session feature scores per-impression AUC 0.5000. Implemented, measured, reported — not
   special-cased.
+- **A1's language split survives into the feature set.** Per-impression AUC of the two similarity
+  features: `embed_cos` 0.5273 (EB-NeRD) vs **0.6168** (MIND, 3rd strongest feature overall);
+  `bm25_score` **0.4970** (EB-NeRD — chance) vs 0.5449 (MIND). Same direction A1 measured for
+  candidate generation: the multilingual model's English-centric fine-tuning shows up on MIND, and
+  BM25 over Danish titles adds essentially nothing on EB-NeRD. Worth one line in the design note,
+  since it is the same finding arriving by a second route.
+- **Transform cost splits roughly 30/45/25** across Q1 features / BM25 / embeddings — measured
+  0.23s, +0.36s, +0.20s per 5,000 EB-NeRD impressions. Useful for Q4: the similarity features are
+  ~70% of per-request feature cost and are also the weakest, so they are the first thing to drop
+  under a latency budget.
 - **News popularity has a ~1h half-life.** Shifting the observation point back from an impression:
   `ctr_1h` AUC 0.714 at lag 0, 0.638 at 1h, 0.502 at 6h, 0.467 at 24h. Trailing windows must be
   hours, not days — and EB-NeRD's train split spans only 10 days, MIND's 6, so a 7d window is
@@ -310,6 +350,21 @@ Append-only. Things that cost someone time — write them down so they cost only
 ## Session log — Aayush
 
 Newest entry at the top. Only Aayush edits this section.
+
+### 2026-09-11 — Q2-A1: the shared feature matrix
+
+**Item(s):** `Q2-A1` — done. **Q1 is now literally complete**: the deferred title and embedding
+features ship here.
+**Did:** New `src/ire_a1/reranker.py`. `MatrixBuilder` fits the three Q1 sources once and
+`transform()` returns a `RankingMatrix` (X, y, groups, feature_names, impression_ids,
+article_ids). 28 features on EB-NeRD, 24 on MIND. BM25 over the user's recent titles and cosine
+against their mean-pooled recent embeddings are computed per impression, with the derived query and
+vector cached on the as-of-filtered recent-history tuple. 16 tests (114 total, was 98).
+**State:** Works. Warm throughput 77K rows/s with everything on; ~36 min extrapolated to the
+13.5M-impression large tier.
+**Next:** `Q2-A2` — LightGBM LambdaRank over this matrix.
+**For Anurag: `Q2-B1` is unblocked.** Read the contract note below before you build the input
+layer — there is one thing that will break an MLP and not a GBDT.
 
 ### 2026-09-11 — Q1-E: boundary enforcement, and a leak it found
 
